@@ -195,26 +195,35 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-      - name: Commit and push generated test files
+            - name: Commit and push generated test files
         if: env.HAS_FILES == 'true' && env.RECEIVED_VALID_RESPONSE == 'true'
         run: |
           echo "=== Committing generated test files ==="
-          
-          # Add the tests folder if it exists and has content
+
+          # Make sure tests folder exists and is not empty
           if [ -d "tests" ] && [ "$(ls -A tests)" ]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+
+            # Ensure we are on the correct branch
+            git checkout main
+
+            # Add the generated files
             git add tests/
-            
-            # Check if there are changes to commit
+
+            # Only commit if there are changes
             if git diff --cached --quiet; then
               echo "No changes to commit"
             else
               git commit -m "Add generated test files from server response"
-              git push
+              # Push using the default token
+              git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
               echo "Successfully committed and pushed test files"
             fi
           else
             echo "No test files were created"
           fi
+
 
       - name: No JS/TS files found
         if: env.HAS_FILES == 'false'
