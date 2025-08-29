@@ -222,39 +222,33 @@ jobs:
           # Clean up the processor script
           rm process_responses.js
 
-      - name: Configure Git
+      - name: Display created test files
         if: env.HAS_FILES == 'true' && env.RECEIVED_VALID_RESPONSE == 'true'
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          echo "=== CREATED TEST FILES OUTPUT ==="
+          echo ""
 
-      - name: Commit and push generated test files
-        if: env.HAS_FILES == 'true' && env.RECEIVED_VALID_RESPONSE == 'true'
-        run: |
-          echo "=== Committing generated test files ==="
-
-          # Make sure tests folder exists and is not empty
-          if [ -d "tests" ] && [ "$(ls -A tests)" ]; then
-            git config --local user.email "action@github.com"
-            git config --local user.name "GitHub Action"
-
-            # Ensure we are on the correct branch
-            git checkout main
-
-            # Add the generated files
-            git add tests/
-
-            # Only commit if there are changes
-            if git diff --cached --quiet; then
-              echo "No changes to commit"
-            else
-              git commit -m "Add generated test files from server response"
-              # Push using git push origin
-              git push origin main
-              echo "Successfully committed and pushed test files"
-            fi
+          if [ -d "tests" ]; then
+            echo "📁 Tests folder structure:"
+            find tests -type f | sort
+            echo ""
+            
+            echo "📄 File contents:"
+            echo "=================="
+            
+            for file in $(find tests -type f | sort); do
+              echo ""
+              echo "🔹 FILE: $file"
+              echo "─────────────────────────────────────────────────────────────"
+              cat "$file"
+              echo ""
+              echo "─────────────────────────────────────────────────────────────"
+            done
+            
+            echo ""
+            echo "✅ SUMMARY: $(find tests -type f | wc -l) files created in tests/ folder"
           else
-            echo "No test files were created"
+            echo "❌ No tests folder found - no files were created"
           fi
 
       - name: No JS/TS files found
