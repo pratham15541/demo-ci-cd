@@ -24,6 +24,17 @@ jobs:
         node ensure-jest.js
         npm install
 
-    - name: Run Tests
+    - name: Create Test Reports Folder
+      run: mkdir -p test-reports
+
+    - name: Run Tests and Save JSON Report
       run: |
-        npx jest --json --outputFile=jest-report.json
+        TIMESTAMP=$(date +%s)
+        npx jest --json --outputFile=test-reports/jest-report-$TIMESTAMP.json
+      shell: bash
+
+    - name: Upload Jest Reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: jest-reports
+        path: test-reports/*.json

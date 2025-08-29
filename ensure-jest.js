@@ -1,6 +1,4 @@
 const fs = require('fs');
-const { execSync } = require('child_process');
-
 const packageJsonPath = './package.json';
 let packageJson = {};
 
@@ -10,21 +8,15 @@ if (fs.existsSync(packageJsonPath)) {
   packageJson = { name: "auto-jest-project", version: "1.0.0" };
 }
 
-// Add test script if missing
+// Ensure scripts object exists
 if (!packageJson.scripts) packageJson.scripts = {};
-if (!packageJson.scripts.test) {
-  packageJson.scripts.test = "jest";
-  console.log("Added 'test' script to package.json");
+
+// Ensure "test" script runs Jest and saves JSON report
+const desiredTestScript = "jest --json --outputFile=test-reports/jest-report.json";
+if (!packageJson.scripts.test || packageJson.scripts.test !== desiredTestScript) {
+  packageJson.scripts.test = desiredTestScript;
+  console.log(`Updated 'test' script in package.json to: ${desiredTestScript}`);
 }
 
 // Save updated package.json
 fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
-
-// Install jest if not installed
-try {
-  require.resolve('jest');
-  console.log("Jest is already installed");
-} catch {
-  console.log("Installing jest...");
-  execSync('npm install --save-dev jest', { stdio: 'inherit' });
-}
