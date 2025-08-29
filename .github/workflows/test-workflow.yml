@@ -255,39 +255,37 @@ jobs:
           fi
               
           # Clean up temporary files
-          rm process_responses.js
-          rm -f tests/responseJson
           echo "Cleanup complete."
 
       - name: Run tests and commit report
         if: env.HAS_FILES == 'true'
         run: |
           echo "=== Running Tests ==="
-              
+
           # Create the reports directory if it doesn't exist
           mkdir -p test-reports
-              
+
           # Generate a timestamp for the filename
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H-%M-%SZ")
           OUTPUT_FILE="test-reports/test-report-${TIMESTAMP}.json"
-              
+
           # Run tests and save the JSON output
           npm test -- --json --outputFile=${OUTPUT_FILE}
-              
+
           # Configure Git
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-              
+
           # Add the newly created report file
           git add ${OUTPUT_FILE}
-              
+
           # Check if there are changes to commit
           if git diff --cached --quiet; then
             echo "No changes to commit. Test report is identical."
           else
             # Commit the report file
             git commit -m "Add test report: ${TIMESTAMP}"
-              
+
             # Push the commit to the repository
             git push origin main
             echo "Successfully committed and pushed test report."
