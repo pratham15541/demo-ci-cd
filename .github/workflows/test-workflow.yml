@@ -76,7 +76,7 @@ jobs:
             echo "Sending to server..."
             
             HTTP_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-              https://6746cc6d0539.ngrok-free.app/inputCode \
+              https://f7296a34e54b.ngrok-free.app/inputCode \
               -H "Content-Type: application/json" \
               -H "ngrok-skip-browser-warning: true" \
               -d "$JSON_PAYLOAD")
