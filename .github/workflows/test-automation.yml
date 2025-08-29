@@ -37,8 +37,15 @@ jobs:
       run: |
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
+
+        # Create or switch to branch
+        git checkout -b jest-reports || git checkout jest-reports
+
+        # Add and commit new report
         git add test-reports/*.json
         git diff --cached --quiet || git commit -m "Add Jest test report $TIMESTAMP"
-        git push https://$GIT_TOKEN@github.com/${{ github.repository }}.git jest-reports
+
+        # Push branch to remote and set upstream
+        git push -u https://$GIT_TOKEN@github.com/${{ github.repository }}.git jest-reports
       env:
         GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
