@@ -1,0 +1,9 @@
+{
+  "diff": [
+    {"input": [2, 3], "expected": 6, "description": "should correctly multiply two positive numbers"},
+    {"input": [5, 0], "expected": 0, "description": "should return 0 when one input is zero"},
+    {"input": [-2, 4], "expected": -8, "description": "should correctly multiply a negative and a positive number"},
+    {"input": ["a", 2], "expected": "NaN", "description": "should return NaN when inputs are not valid numbers"},
+    {"input": [1000000, 2], "expected": 2000000, "description": "should correctly multiply a large number by a small number"}
+  ]
+}
