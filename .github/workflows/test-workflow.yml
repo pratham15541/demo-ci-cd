@@ -48,26 +48,38 @@ jobs:
             echo "HAS_FILES=true" >> $GITHUB_ENV
           fi
 
-      - name: Send files and create/commit test files
+      - name: Send changed files to server
         if: env.HAS_FILES == 'true'
         run: |
           echo "=== Sending files to server ==="
-          
-          # Initialize a file to store the final server response.
-          # We'll assume the server returns a single aggregate JSON for all files sent.
-          touch server_response.json
           
           for file in $CHANGED_FILES; do
             echo ""
             echo "---- Processing: $file ----"
             
             if [ ! -f "$file" ]; then
-              echo "⚠️ File $file doesn't exist, skipping"
+              echo "⚠️  File $file doesn't exist, skipping"
               continue
             fi
             
-            # Read and convert file to UTF-8
-            CONTENT=$(cat "$file" | jq -Rs .)
+            # Debug file encoding
+            echo "File info:"
+            file "$file" || echo "Cannot determine file type"
+            
+            # Convert file to UTF-8 if needed and read content
+            echo "Reading and converting file content..."
+            
+            # First, try to detect and convert encoding
+            if command -v iconv >/dev/null 2>&1; then
+              # Try to convert from UTF-16 to UTF-8 if needed
+              CONTENT=$(iconv -f UTF-16 -t UTF-8 "$file" 2>/dev/null | jq -Rs .) || \
+              CONTENT=$(iconv -f UTF-16LE -t UTF-8 "$file" 2>/dev/null | jq -Rs .) || \
+              CONTENT=$(cat "$file" | jq -Rs .)
+            else
+              # Fallback - just read as-is
+              CONTENT=$(cat "$file" | jq -Rs .)
+            fi
+            
             if [ $? -ne 0 ]; then
               echo "❌ Failed to read content for $file"
               continue
@@ -81,75 +93,27 @@ jobs:
             
             echo "Sending to server..."
             
-            # Capture the full response and status code
             HTTP_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-              https://5c6e510e6b7a.ngrok-free.app/inputCode \
+               https://5c6e510e6b7a.ngrok-free.app/inputCode \
               -H "Content-Type: application/json" \
               -H "ngrok-skip-browser-warning: true" \
               -d "$JSON_PAYLOAD")
             
             HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1 | cut -d: -f2)
             RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+
+            echo "::set-output name=response_body::${RESPONSE_BODY}"
             
             echo "HTTP Status: $HTTP_STATUS"
             echo "Server response: $RESPONSE_BODY"
             
             if [ "$HTTP_STATUS" = "200" ]; then
-              echo "$RESPONSE_BODY" > server_response.json
-              echo "✅ Successfully received response for $file"
+              echo "✅ Successfully sent $file"
             else
               echo "❌ Failed to send $file (HTTP $HTTP_STATUS)"
-              exit 1 # Fail the step if any file fails
             fi
             
             echo "------------------------"
           done
-          
-          echo "=== Creating and committing test files ==="
-          
-          # Read the server response from the file and pass it to Node.js
-          node <<EOF
-          const fs = require('fs');
-          const path = require('path');
-          const input = fs.readFileSync('server_response.json', 'utf8');
-          let filesJson;
 
-          if (input.trim() === '') {
-            console.log('Server response was empty. No test files will be created.');
-            process.exit(0);
-          }
-          
-          const sanitizedInput = input.replace(/^```json\s*|```$/g, '').trim();
-          try {
-            filesJson = JSON.parse(sanitizedInput);
-          } catch (err) {
-            console.error('Failed to parse JSON from server response:', err);
-            process.exit(1);
-          }
-          
-          const folder = 'tests';
-          if (!fs.existsSync(folder)) {
-            fs.mkdirSync(folder, { recursive: true });
-          }
-          
-          for (const [filename, content] of Object.entries(filesJson)) {
-            const filePath = path.join(folder, path.basename(filename));
-            fs.writeFileSync(filePath, content, 'utf8');
-            console.log('Created/Updated file:', filePath);
-          }
-          EOF
-          
-          git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions"
-          
-          # Check for staged changes before attempting to commit
-          # The `|| true` prevents the workflow from failing if tests/ doesn't exist
-          git add tests/* || true
-          
-          if git diff --staged --quiet; then
-            echo "No changes to commit. Exiting."
-          else
-            git commit -m "Add generated test files"
-            git pull --rebase origin $GITHUB_REF
-            git push
-          fi
+    
