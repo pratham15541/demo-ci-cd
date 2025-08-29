@@ -121,14 +121,20 @@ jobs:
 
       - name: Create and commit test files
         run: |
+          # Make the RESPONSE_BODY variable available to the Node.js script
+          export RESPONSE_BODY="$RESPONSE_BODY"
+          
           # Use a here-document (heredoc) to pass the JS code to a node interpreter.
-          # The 'node' command runs the code directly.
-          # The 'fs' and 'path' modules are used to create the 'tests' directory and files.
           node <<EOF
           const fs = require('fs');
           const path = require('path');
           const input = process.env.RESPONSE_BODY;
           let filesJson;
+
+          if (!input) {
+            console.error('RESPONSE_BODY is empty or undefined. No files will be created.');
+            process.exit(0); // Exit successfully if there's nothing to process
+          }
 
           // Process input, handling potential JSON wrapping
           const sanitizedInput = input.replace(/^```json\s*|```$/g, '').trim();
@@ -151,12 +157,20 @@ jobs:
           }
           EOF
 
-          # Configure Git and commit the files
+      - name: Commit and push generated test files
+        run: |
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
           git add tests/*
-          git commit -m "Add generated test files" || echo "No changes to commit"
-          git push
+          
+          # Check for staged changes before attempting to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit. Exiting."
+          else
+            git commit -m "Add generated test files"
+            git pull --rebase origin $GITHUB_REF
+            git push
+          fi
 
       # - name: Install dependencies
       #   run: |
