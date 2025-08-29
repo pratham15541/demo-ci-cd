@@ -8,12 +8,16 @@ on:
 jobs:
   send_files:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -216,8 +220,8 @@ jobs:
               echo "No changes to commit"
             else
               git commit -m "Add generated test files from server response"
-              # Push using the default token
-              git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
+              # Push using git push origin
+              git push origin main
               echo "Successfully committed and pushed test files"
             fi
           else
