@@ -224,42 +224,8 @@ jobs:
             echo "No test files were created"
           fi
 
-      - name: Create and commit test files
-        if: env.HAS_FILES == 'true'
-        run: |
-          echo "=== Creating and Committing Test Files ==="
-              
-          # Create the processor script (assuming process_responses.js exists or is created here)
-          # The actual content of process_responses.js goes here, or in a prior step.
-          # For a complete solution, you'd have the 'cat > process_responses.js' block here.
-              
-          # Run the processor to create files in the 'tests' folder
-          node process_responses.js
-              
-          # Configure Git
-          git config --global user.email "action@github.com"
-          git config --global user.name "GitHub Action"
-              
-          # Add the newly created files
-          git add tests/
-              
-          # Only commit if there are changes
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            # Commit the changes
-            git commit -m "Add generated test files"
-              
-            # Push the changes to the repository
-            git push
-            echo "Successfully committed and pushed test files."
-          fi
-              
-          # Clean up temporary files
-          echo "Cleanup complete."
-
       - name: Run tests and commit report
-        if: env.HAS_FILES == 'true'
+        if: env.HAS_FILES == 'true' && env.RECEIVED_VALID_RESPONSE == 'true'
         run: |
           echo "=== Running Tests ==="
 
@@ -291,7 +257,6 @@ jobs:
             git push origin main
             echo "Successfully committed and pushed test report."
           fi
-
       
       - name: No JS/TS files found
         if: env.HAS_FILES == 'false'
