@@ -1,51 +1,36 @@
-name: Run Jest Tests
+name: Run Jest Tests and Commit Reports
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
 jobs:
-  test:
+  test_and_commit:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write # This is crucial for committing changes
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: 20
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
 
-    - name: Install Dependencies and Ensure Jest
-      run: |
-        node ensure-jest.js
-        npm install
+      - name: Install Dependencies
+        run: npm install
 
-    - name: Create Test Reports Folder
-      run: mkdir -p test-reports
+      - name: Run Tests and Save JSON Report
+        run: |
+          mkdir -p test-reports
+          TIMESTAMP=$(date +%s)
+          npx jest --json --outputFile=test-reports/jest-report-$TIMESTAMP.json
 
-    - name: Run Tests and Save JSON Report
-      run: |
-        TIMESTAMP=$(date +%s)
-        npx jest --json --outputFile=test-reports/jest-report-$TIMESTAMP.json
-      shell: bash
-
-    - name: Commit Jest Report to Repository
-      run: |
-        git config user.name "github-actions"
-        git config user.email "github-actions@github.com"
-
-        # Create or switch to branch
-        git checkout -b jest-reports || git checkout jest-reports
-
-        # Add and commit new report
-        git add test-reports/*.json
-        git diff --cached --quiet || git commit -m "Add Jest test report $TIMESTAMP"
-
-        # Push branch to remote and set upstream
-        git push -u https://$GIT_TOKEN@github.com/${{ github.repository }}.git jest-reports
-      env:
-        GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
+      - name: Commit Jest Report to Repository
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add test-reports/*.json
+          git commit -m "Add Jest test report from GitHub Actions" || true
+          git push
