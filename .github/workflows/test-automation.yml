@@ -34,7 +34,7 @@ jobs:
       # This action finds all changed files ending with .js, .ts, .jsx, or .tsx.
       - name: Get changed files
         id: changed-files
-        uses: tj-actions/changed-files@v44
+        uses: tj-actions/changed-files@v46
         with:
           files: |
             **/*.js
