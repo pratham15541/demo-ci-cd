@@ -34,7 +34,7 @@ jobs:
       shell: bash
 
     - name: Upload Jest Reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: jest-reports
         path: test-reports/*.json
