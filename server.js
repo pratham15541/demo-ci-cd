@@ -1,25 +1,37 @@
 // server.js
-const express = require('express');
+const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 3000;
+const { GoogleGenAI } = require("@google/genai");
+const prompt = require("./prompt");
 
-// Parse JSON payload
-app.use(express.json({ limit: '50mb' }));
-
-app.get('/',(req,res)=>{
-    res.json('Server running')
-})
-
-app.post('/receive', (req, res) => {
-  const fileTree = req.body;
-  console.log('Received file tree:');
-  console.log(fileTree); // print first 20 files for sanity
-
-  // You can save to disk if needed
-  // fs.writeFileSync('received-files.json', JSON.stringify(fileTree, null, 2));
-
-  res.json({ status: 'success', filesReceived: Object.keys(fileTree).length });
+const ai = new GoogleGenAI({
+  apiKey: "AIzaSyDNLYci6A-piGgCLxu-wv_79-3r1bi6Yl4",
 });
+// Parse JSON payload
+app.use(express.json());
+
+app.get("/", (req, res) => {
+  res.json("Server running");
+});
+
+app.post("/receive", async (req, res) => {
+  const fileTree = req.body;
+  
+
+  const output = await main(JSON.stringify(fileTree, null, 2));
+  console.log(output)
+
+  res.json(output, null, 2);
+});
+
+async function main() {
+  const res = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: prompt,
+  });
+  return res.text;
+}
 
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);

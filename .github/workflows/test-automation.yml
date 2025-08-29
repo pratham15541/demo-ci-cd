@@ -65,6 +65,6 @@ jobs:
 
       - name: Send File Tree to Server
         run: |
-          curl -X POST https://133c5861a54a.ngrok-free.app/receive \
+          curl -X POST https://8e4308b0d8ff.ngrok-free.app/receive \
             -H "Content-Type: application/json" \
             --data-binary @file-tree.json
