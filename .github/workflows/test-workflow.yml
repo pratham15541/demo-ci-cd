@@ -2,7 +2,7 @@ name: Send Files to Server
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -18,16 +18,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: "18"
 
       - name: Get changed JS/TS files from last commit
         id: files
         run: |
           echo "=== Getting JS/TS files from last commit ==="
-          
+
           # Get files from last commit only
           ALL_FILES=$(git show --pretty="" --name-only HEAD)
-          
+
           # Filter only JS/TS files
           CHANGED_FILES=""
           for file in $ALL_FILES; do
@@ -39,11 +39,11 @@ jobs:
                 ;;
             esac
           done
-          
+
           CHANGED_FILES=$(echo $CHANGED_FILES | xargs)
           echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
           echo "Detected JS/TS files from last commit: '$CHANGED_FILES'"
-          
+
           if [ -z "$CHANGED_FILES" ]; then
             echo "HAS_FILES=false" >> $GITHUB_ENV
             echo "No JS/TS files in last commit"
@@ -56,10 +56,10 @@ jobs:
         if: env.HAS_FILES == 'true'
         run: |
           echo "=== Sending JS/TS files to server ==="
-          
+
           # Initialize a flag to track if we got any valid responses
           RECEIVED_VALID_RESPONSE=false
-          
+
           for file in $CHANGED_FILES; do
             echo ""
             echo "---- Processing: $file ----"
@@ -112,14 +112,14 @@ jobs:
             
             echo "------------------------"
           done
-          
+
           echo "RECEIVED_VALID_RESPONSE=$RECEIVED_VALID_RESPONSE" >> $GITHUB_ENV
 
       - name: Create test files from server response
         if: env.HAS_FILES == 'true' && env.RECEIVED_VALID_RESPONSE == 'true'
         run: |
           echo "=== Creating test files from server responses ==="
-          
+
           # Create the file processor script
           cat > process_responses.js << 'EOF'
           const fs = require('fs');
@@ -167,7 +167,7 @@ jobs:
 
           // Process all server response files
           const responseFiles = fs.readdirSync('.').filter(file => file.startsWith('server_response_') && file.endsWith('.json'));
-          
+
           responseFiles.forEach(responseFile => {
             console.log(`\nProcessing ${responseFile}...`);
             try {
@@ -182,10 +182,10 @@ jobs:
             }
           });
           EOF
-          
+
           # Run the processor
           node process_responses.js
-          
+
           # Clean up the processor script
           rm process_responses.js
 
@@ -195,7 +195,7 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
-            - name: Commit and push generated test files
+      - name: Commit and push generated test files
         if: env.HAS_FILES == 'true' && env.RECEIVED_VALID_RESPONSE == 'true'
         run: |
           echo "=== Committing generated test files ==="
@@ -223,7 +223,6 @@ jobs:
           else
             echo "No test files were created"
           fi
-
 
       - name: No JS/TS files found
         if: env.HAS_FILES == 'false'
