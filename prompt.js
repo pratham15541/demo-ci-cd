@@ -1,31 +1,39 @@
-const prompt =`
-You are a QA automation assistant.  
-I will provide you with source code in the format:  
+function generatePrompt(fileTree) {
+  return `Generate Jest unit tests for the provided JavaScript codebase.
 
+**Requirements:**
+- For each JavaScript/TypeScript file (.js, .ts, .tsx, .jsx) containing functions, create corresponding test files
+- Use Jest testing framework exclusively
+- Generate exactly 5 test cases per function covering: normal cases, edge cases, boundary conditions, invalid inputs, and expected failures
+- Create separate JSON files for test case data
+
+**Output Structure:**
+For each function file (e.g., filename.js/.ts/.tsx/.jsx):
+1. Create \`tests/filename.test.js\` - Jest unit test file
+2. Create \`tests/filename.testCase.json\` - Test case data (5 cases per function)
+
+
+**Test Case JSON Format:**
+\`\`\`json
 {
-  "filename.js": "file contents...",
-  "anotherFile.js": "..."
+  "functionName": [
+    {"input": [param1, param2], "expected": result, "description": "test description"},
+    {"input": [param1, param2], "expected": result, "description": "test description"}
+  ]
+}
+\`\`\`
+
+**Jest Test Format:**
+- Use describe() blocks for each function
+- Use test() or it() for individual test cases
+- Import test cases from JSON files
+- Include proper assertions with expect()
+
+**Output Format:**
+Return a JSON object where keys are file paths and values are file contents. Include only the generated test files.
+
+**Codebase:**
+${JSON.stringify(fileTree, null, 2)}`;
 }
 
-Your task:
-1. Look through all source files.
-2. Ignore non-pure logic files like server setup or configs (e.g., express servers, index.js, config.js).
-3. For each function/module file:
-   - Generate a Jest test file in the format: \`tests/<functionName>.test.js\`
-   - Generate a testcase JSON file: \`tests/<functionName>-testcase.json\`
-4. If a test file already exists in input, **preserve its contents** but still generate the corresponding \`-testcase.json\`.
-5. Each JSON file should contain \`{ "cases": [ { "input": [...], "expected": ... }, ... ] }\`
-   - Cover positive, negative, zero, and boundary test cases.
-6. Output everything in this format:  
-
-{
-  "tests": {
-    "functionName.test.js": "<Jest test code>",
-    "functionName-testcase.json": { ... }
-  }
-}
-
-Only return the JSON object. No explanations.
-`
-
-module.exports = prompt
+module.exports = generatePrompt;

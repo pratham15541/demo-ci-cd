@@ -8,7 +8,7 @@ function getFilesWithContent(dir = __dirname, baseDir = dir) {
 
   function walk(d) {
     for (const f of fs.readdirSync(d)) {
-      if (f === 'node_modules' || f == 'ensure-jest.js' || f == 'file-tree-parser.js') continue; // skip node_modules
+      if (f === 'node_modules' || f == 'ensure-jest.js' || f == 'file-tree-parser.js' || f == 'prompt.js' || f == 'tests') continue; // skip node_modules
       const full = path.join(d, f);
       const stat = fs.statSync(full);
       if (stat.isDirectory()) walk(full);
@@ -24,4 +24,4 @@ function getFilesWithContent(dir = __dirname, baseDir = dir) {
 }
 
 // Example usage
-console.log(getFilesWithContent());
+console.log(JSON.stringify(getFilesWithContent()));
