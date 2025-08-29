@@ -50,52 +50,69 @@ jobs:
 
       - name: Send changed files to server
         if: env.HAS_FILES == 'true'
-        id: send_files
         run: |
           echo "=== Sending files to server ==="
           
-          RESPONSE_BODY=""
           for file in $CHANGED_FILES; do
+            echo ""
             echo "---- Processing: $file ----"
-            [ ! -f "$file" ] && echo "⚠️  File $file doesn't exist, skipping" && continue
-
-            # Convert to UTF-8 if needed
-            if command -v iconv >/dev/null 2>&1; then
-              CONTENT=$(iconv -f UTF-16 -t UTF-8 "$file" 2>/dev/null || \
-                        iconv -f UTF-16LE -t UTF-8 "$file" 2>/dev/null || \
-                        cat "$file")
-            else
-              CONTENT=$(cat "$file")
+            
+            if [ ! -f "$file" ]; then
+              echo "⚠️  File $file doesn't exist, skipping"
+              continue
             fi
-
-            # Escape for JSON
+            
+            # Debug file encoding
+            echo "File info:"
+            file "$file" || echo "Cannot determine file type"
+            
+            # Convert file to UTF-8 if needed and read content
+            echo "Reading and converting file content..."
+            
+            # First, try to detect and convert encoding
+            if command -v iconv >/dev/null 2>&1; then
+              # Try to convert from UTF-16 to UTF-8 if needed
+              CONTENT=$(iconv -f UTF-16 -t UTF-8 "$file" 2>/dev/null | jq -Rs .) || \
+              CONTENT=$(iconv -f UTF-16LE -t UTF-8 "$file" 2>/dev/null | jq -Rs .) || \
+              CONTENT=$(cat "$file" | jq -Rs .)
+            else
+              # Fallback - just read as-is
+              CONTENT=$(cat "$file" | jq -Rs .)
+            fi
+            
+            if [ $? -ne 0 ]; then
+              echo "❌ Failed to read content for $file"
+              continue
+            fi
+            
+            # Create JSON payload
             JSON_PAYLOAD=$(jq -n \
               --arg file_path "$file" \
-              --arg content "$CONTENT" \
+              --argjson content "$CONTENT" \
               '{file_path: $file_path, content: $content}')
-
-
+            
+            echo "Sending to server..."
+            
             HTTP_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-              https://42459725c5d9.ngrok-free.app/inputCode \
+               https://5c6e510e6b7a.ngrok-free.app/inputCode \
               -H "Content-Type: application/json" \
               -H "ngrok-skip-browser-warning: true" \
               -d "$JSON_PAYLOAD")
-
+            
             HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1 | cut -d: -f2)
             RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
-
+            
             echo "HTTP Status: $HTTP_STATUS"
             echo "Server response: $RESPONSE_BODY"
             
-            if [ "$HTTP_STATUS" != "200" ]; then
-              echo "❌ Failed to send $file"
-            else
+            if [ "$HTTP_STATUS" = "200" ]; then
               echo "✅ Successfully sent $file"
+            else
+              echo "❌ Failed to send $file (HTTP $HTTP_STATUS)"
             fi
+            
+            echo "------------------------"
           done
-
-          # Save server response for next step
-          echo "RESPONSE_BODY=$RESPONSE_BODY" >> $GITHUB_ENV
 
       - name: SERVER RESPONSE
         run: |
