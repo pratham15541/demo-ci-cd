@@ -61,7 +61,6 @@ jobs:
         run: |
           echo "=== Sending JS/TS files to server ==="
 
-          # Initialize a flag to track if we got any valid responses
           RECEIVED_VALID_RESPONSE=false
 
           for file in $CHANGED_FILES; do
@@ -79,7 +78,6 @@ jobs:
               continue
             }
             
-            # Create JSON payload
             JSON_PAYLOAD=$(jq -n \
               --arg file_path "$file" \
               --argjson content "$CONTENT" \
@@ -101,8 +99,6 @@ jobs:
             
             if [ "$HTTP_STATUS" = "200" ]; then
               echo "Successfully sent $file"
-              
-              # Check if response contains JSON (basic check)
               if echo "$RESPONSE_BODY" | jq empty 2>/dev/null; then
                 echo "Valid JSON response received, saving for processing..."
                 echo "$RESPONSE_BODY" > "server_response_${file//\//_}.json"
@@ -123,20 +119,18 @@ jobs:
         if: env.HAS_FILES == 'true' && env.RECEIVED_VALID_RESPONSE == 'true'
         run: |
           echo "=== Creating test files from server responses ==="
-
-          # Create the improved file processor script based on decode.js
+          
+          # Create the file processor script with your function included
           cat > process_responses.js << 'EOF'
           const fs = require('fs');
           const path = require('path');
-
+          
           function createTestFiles(input, folder = 'tests') {
             let filesJson;
-
-            // If input is a string, parse it
+          
             if (typeof input === 'string') {
-              // Remove ```json and ``` wrapping
               input = input.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
-
+          
               try {
                 filesJson = JSON.parse(input);
               } catch (err) {
@@ -150,17 +144,15 @@ jobs:
               console.error('Input must be a JSON string or object');
               return;
             }
-
-            // Ensure the folder exists
+          
             if (!fs.existsSync(folder)) {
               fs.mkdirSync(folder, { recursive: true });
               console.log(`Created folder: ${folder}`);
             }
-
-            // Create or overwrite files
+          
             for (const [filename, content] of Object.entries(filesJson)) {
               const filePath = path.join(folder, path.basename(filename));
-
+          
               try {
                 fs.writeFileSync(filePath, content, 'utf8');
                 console.log(`Created/Updated file: ${filePath}`);
@@ -169,36 +161,30 @@ jobs:
               }
             }
           }
-
-          // Process all server response files
+          
           const responseFiles = fs.readdirSync('.').filter(file => file.startsWith('server_response_') && file.endsWith('.json'));
-
+          
           if (responseFiles.length === 0) {
-            console.log('No server response files found');
+            console.log('No server response files found.');
             process.exit(0);
           }
-
+          
           responseFiles.forEach(responseFile => {
             console.log(`\nProcessing ${responseFile}...`);
             try {
               const responseContent = fs.readFileSync(responseFile, 'utf8');
-              console.log(`Response content preview: ${responseContent.substring(0, 150)}...`);
               
-              // The response might be a JSON string containing markdown-wrapped JSON
-              // First try to parse it as JSON to get the actual content
-              let actualContent;
+              let parsedContent;
               try {
-                actualContent = JSON.parse(responseContent);
-                console.log('Successfully parsed outer JSON');
+                parsedContent = JSON.parse(responseContent);
+                console.log('Successfully parsed outer JSON.');
               } catch (parseErr) {
-                console.log('Response is not JSON, using as-is');
-                actualContent = responseContent;
+                console.log('Response is not outer JSON, passing raw content to function.');
+                parsedContent = responseContent;
               }
               
-              // Now process the content
-              createTestFiles(actualContent);
+              createTestFiles(parsedContent);
               
-              // Clean up the temporary response file
               fs.unlinkSync(responseFile);
               console.log(`Cleaned up ${responseFile}`);
             } catch (err) {
@@ -206,10 +192,10 @@ jobs:
             }
           });
           EOF
-
+          
           # Run the processor
           node process_responses.js
-
+          
           # Clean up the processor script
           rm process_responses.js
 
@@ -224,23 +210,18 @@ jobs:
         run: |
           echo "=== Committing generated test files ==="
 
-          # Make sure tests folder exists and is not empty
           if [ -d "tests" ] && [ "$(ls -A tests)" ]; then
             git config --local user.email "action@github.com"
             git config --local user.name "GitHub Action"
 
-            # Ensure we are on the correct branch
             git checkout main
 
-            # Add the generated files
             git add tests/
 
-            # Only commit if there are changes
             if git diff --cached --quiet; then
               echo "No changes to commit"
             else
               git commit -m "Add generated test files from server response"
-              # Push using git push origin
               git push origin main
               echo "Successfully committed and pushed test files"
             fi
