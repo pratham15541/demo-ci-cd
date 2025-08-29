@@ -1,4 +1,4 @@
-name: Send Files to Server
+name: Send Files to Server and Create Tests
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  send_files:
+  send_files_and_create_tests:
     runs-on: ubuntu-latest
 
     steps:
@@ -14,6 +14,12 @@ jobs:
         uses: actions/checkout@v3
         with:
           fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
 
       - name: Get changed JS/TS files from last commit
         id: files
@@ -47,54 +53,522 @@ jobs:
             echo "Found JS/TS files to send"
           fi
 
-      - name: Send JS/TS files to server
+      - name: Create JSON decoder and test utilities
         if: env.HAS_FILES == 'true'
         run: |
-          echo "=== Sending JS/TS files to server ==="
+          # Create enhanced JSON decoder with test file creation
+          cat > jsonDecoder.js << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          class JsonDecoder {
+            constructor() {
+              this.decodedData = null;
+              this.errors = [];
+            }
+
+            /**
+             * Decode server response JSON with multiple fallback strategies
+             */
+            decode(serverResponse) {
+              console.log('=== Starting JSON Decode Process ===');
+              
+              if (!serverResponse) {
+                this.errors.push('Empty server response');
+                return { success: false, error: 'Empty response' };
+              }
+
+              let responseData = serverResponse;
+
+              // Strategy 1: Already an object
+              if (typeof serverResponse === 'object' && serverResponse !== null) {
+                console.log('Response is already an object');
+                responseData = serverResponse;
+              } 
+              // Strategy 2: Parse as JSON string
+              else if (typeof serverResponse === 'string') {
+                console.log('Attempting to parse string response...');
+                
+                try {
+                  responseData = JSON.parse(serverResponse);
+                  console.log('✓ Successfully parsed as JSON');
+                } catch (err) {
+                  console.log('Direct JSON parse failed, trying alternative methods...');
+                  
+                  // Strategy 3: Extract from markdown code blocks
+                  const codeBlockPatterns = [
+                    /```(?:json)?\s*([\s\S]*?)\s*```/i,
+                    /```\s*([\s\S]*?)\s*```/i,
+                    /<code>([\s\S]*?)<\/code>/i
+                  ];
+
+                  let extracted = false;
+                  for (const pattern of codeBlockPatterns) {
+                    const match = serverResponse.match(pattern);
+                    if (match) {
+                      console.log(`Found code block with pattern: ${pattern}`);
+                      try {
+                        responseData = JSON.parse(match[1].trim());
+                        console.log('✓ Successfully parsed code block content');
+                        extracted = true;
+                        break;
+                      } catch (parseErr) {
+                        console.log(`Failed to parse code block content: ${parseErr.message}`);
+                      }
+                    }
+                  }
+
+                  if (!extracted) {
+                    // Strategy 4: Find JSON-like structures in text
+                    const jsonMatch = serverResponse.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                      try {
+                        responseData = JSON.parse(jsonMatch[0]);
+                        console.log('✓ Extracted and parsed JSON from text');
+                      } catch (parseErr) {
+                        this.errors.push(`All parsing strategies failed: ${parseErr.message}`);
+                        return { success: false, error: 'Unable to parse response as JSON' };
+                      }
+                    } else {
+                      this.errors.push('No JSON structure found in response');
+                      return { success: false, error: 'No JSON found in response' };
+                    }
+                  }
+                }
+              }
+
+              // Validate and normalize the decoded data
+              const normalizedData = this.normalizeDecodedData(responseData);
+              if (!normalizedData.success) {
+                return normalizedData;
+              }
+
+              this.decodedData = normalizedData.data;
+              
+              console.log(`=== Decode Summary ===`);
+              console.log(`Files found: ${Object.keys(this.decodedData).length}`);
+              console.log(`File names: ${Object.keys(this.decodedData).join(', ')}`);
+              
+              return {
+                success: true,
+                data: this.decodedData,
+                fileCount: Object.keys(this.decodedData).length,
+                message: `Successfully decoded ${Object.keys(this.decodedData).length} files`
+              };
+            }
+
+            /**
+             * Normalize decoded data to consistent format
+             */
+            normalizeDecodedData(data) {
+              if (!data || typeof data !== 'object') {
+                return { success: false, error: 'Invalid data structure' };
+              }
+
+              // Handle different response structures
+              let filesData = null;
+
+              if (data.files && typeof data.files === 'object') {
+                filesData = data.files;
+              } else if (data.test_files && typeof data.test_files === 'object') {
+                filesData = data.test_files;
+              } else if (data.data && typeof data.data === 'object') {
+                filesData = data.data;
+              } else if (this.looksLikeFilesObject(data)) {
+                filesData = data;
+              } else {
+                return { success: false, error: 'No recognizable files structure found' };
+              }
+
+              if (!filesData || Object.keys(filesData).length === 0) {
+                return { success: false, error: 'No files found in response' };
+              }
+
+              return { success: true, data: filesData };
+            }
+
+            /**
+             * Check if object looks like a files collection
+             */
+            looksLikeFilesObject(obj) {
+              const keys = Object.keys(obj);
+              if (keys.length === 0) return false;
+
+              // Check if most keys look like filenames and values are strings
+              const filelike = keys.filter(key => 
+                (key.includes('.') || key.includes('test')) && 
+                typeof obj[key] === 'string' && 
+                obj[key].length > 10
+              );
+
+              return filelike.length / keys.length > 0.5;
+            }
+
+            /**
+             * Generate test files from decoded data
+             */
+            generateTestFiles(folder = 'tests', originalFilePath = null) {
+              if (!this.decodedData) {
+                return { success: false, error: 'No decoded data available' };
+              }
+
+              console.log('=== Generating Test Files ===');
+
+              if (!fs.existsSync(folder)) {
+                fs.mkdirSync(folder, { recursive: true });
+                console.log(`Created folder: ${folder}`);
+              }
+
+              let filesCreated = 0;
+              let errors = [];
+              const createdFiles = [];
+
+              for (const [filename, content] of Object.entries(this.decodedData)) {
+                if (!filename || typeof content !== 'string') {
+                  console.warn(`Skipping invalid file entry: ${filename}`);
+                  continue;
+                }
+
+                let safeFilename = path.basename(filename);
+                
+                // Ensure test filename format
+                if (originalFilePath && !safeFilename.includes('test')) {
+                  const originalName = path.basename(originalFilePath, path.extname(originalFilePath));
+                  const ext = path.extname(safeFilename) || '.test.js';
+                  safeFilename = `${originalName}.test${ext}`;
+                }
+
+                const filePath = path.join(folder, safeFilename);
+
+                try {
+                  fs.writeFileSync(filePath, content, 'utf8');
+                  console.log(`✓ Created: ${filePath}`);
+                  filesCreated++;
+                  createdFiles.push(filePath);
+                } catch (err) {
+                  console.error(`✗ Failed to write ${filePath}: ${err.message}`);
+                  errors.push({ file: filePath, error: err.message });
+                }
+              }
+
+              return {
+                success: filesCreated > 0,
+                filesCreated,
+                createdFiles,
+                errors: errors.length > 0 ? errors : undefined,
+                message: `Generated ${filesCreated} test files`
+              };
+            }
+
+            /**
+             * Get decode results
+             */
+            getResults() {
+              return {
+                decodedData: this.decodedData,
+                errors: this.errors,
+                success: this.decodedData !== null
+              };
+            }
+          }
+
+          module.exports = { JsonDecoder };
+          EOF
+
+
+
+      - name: Send JS/TS files to server, decode JSON, and create tests
+        if: env.HAS_FILES == 'true'
+        run: |
+          echo "=== Processing Files with Enhanced JSON Decoder ==="
           
-          for file in $CHANGED_FILES; do
-            echo ""
-            echo "---- Processing: $file ----"
+          node -e "
+          const { JsonDecoder } = require('./jsonDecoder.js');
+          const fs = require('fs');
+          
+          const changedFiles = process.env.CHANGED_FILES.split(' ').filter(f => f.trim());
+          let totalTestsCreated = 0;
+          let processedFiles = 0;
+          const allResults = [];
+          
+          async function processFile(file) {
+            console.log(\`\\n==== Processing: \${file} ====\`);
             
-            if [ ! -f "$file" ]; then
-              echo "File $file doesn't exist, skipping"
-              continue
-            fi
-            
-            echo "Reading file content..."
-            CONTENT=$(cat "$file" | jq -Rs .) || {
-              echo "Failed to read content for $file"
-              continue
+            if (!fs.existsSync(file)) {
+              console.log(\`File \${file} doesn't exist, skipping\`);
+              return;
             }
             
-            # Create JSON payload
-            JSON_PAYLOAD=$(jq -n \
-              --arg file_path "$file" \
-              --argjson content "$CONTENT" \
-              '{file_path: $file_path, content: $content}')
+            try {
+              const content = fs.readFileSync(file, 'utf8');
+              const jsonPayload = JSON.stringify({
+                file_path: file,
+                content: content
+              });
+              
+              console.log('Sending to server...');
+              
+              const https = require('https');
+              const http = require('http');
+              const url = require('url');
+              
+              const serverUrl = 'https://0534281de02f.ngrok-free.app/inputCode';
+              const parsedUrl = url.parse(serverUrl);
+              
+              const options = {
+                hostname: parsedUrl.hostname,
+                port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+                path: parsedUrl.path,
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(jsonPayload),
+                  'ngrok-skip-browser-warning': 'true'
+                }
+              };
+              
+              return new Promise((resolve) => {
+                const client = parsedUrl.protocol === 'https:' ? https : http;
+                const req = client.request(options, (res) => {
+                  let responseBody = '';
+                  
+                  res.on('data', (chunk) => {
+                    responseBody += chunk;
+                  });
+                  
+                  res.on('end', () => {
+                    console.log(\`HTTP Status: \${res.statusCode}\`);
+                    
+                    if (res.statusCode === 200) {
+                      console.log(\`✓ Server response received for \${file}\`);
+                      
+                      // Use JsonDecoder to decode the response
+                      const decoder = new JsonDecoder();
+                      const decodeResult = decoder.decode(responseBody);
+                      
+                      if (decodeResult.success) {
+                        console.log(\`✓ JSON decoded successfully: \${decodeResult.message}\`);
+                        
+                        // Generate test files
+                        const testResult = decoder.generateTestFiles('tests', file);
+                        
+                        if (testResult.success && testResult.filesCreated > 0) {
+                          totalTestsCreated += testResult.filesCreated;
+                          console.log(\`✓ \${testResult.message} for \${file}\`);
+                          
+                          allResults.push({
+                            sourceFile: file,
+                            testFilesCreated: testResult.filesCreated,
+                            createdFiles: testResult.createdFiles,
+                            success: true
+                          });
+                        } else {
+                          console.log(\`No test files created for \${file}\`);
+                          allResults.push({
+                            sourceFile: file,
+                            testFilesCreated: 0,
+                            success: false,
+                            error: testResult.error || 'Unknown error'
+                          });
+                        }
+                      } else {
+                        console.error(\`✗ JSON decode failed for \${file}: \${decodeResult.error}\`);
+                        allResults.push({
+                          sourceFile: file,
+                          testFilesCreated: 0,
+                          success: false,
+                          error: \`JSON decode failed: \${decodeResult.error}\`
+                        });
+                      }
+                      
+                      processedFiles++;
+                    } else {
+                      console.error(\`✗ Server request failed for \${file} (HTTP \${res.statusCode})\`);
+                      allResults.push({
+                        sourceFile: file,
+                        testFilesCreated: 0,
+                        success: false,
+                        error: \`HTTP \${res.statusCode}\`
+                      });
+                    }
+                    
+                    resolve();
+                  });
+                });
+                
+                req.on('error', (err) => {
+                  console.error(\`Request failed for \${file}:\`, err.message);
+                  allResults.push({
+                    sourceFile: file,
+                    testFilesCreated: 0,
+                    success: false,
+                    error: err.message
+                  });
+                  resolve();
+                });
+                
+                req.write(jsonPayload);
+                req.end();
+              });
+              
+            } catch (err) {
+              console.error(\`Error processing \${file}:\`, err.message);
+              allResults.push({
+                sourceFile: file,
+                testFilesCreated: 0,
+                success: false,
+                error: err.message
+              });
+            }
+          }
+          
+          // Process all files
+          async function processAllFiles() {
+            for (const file of changedFiles) {
+              await processFile(file);
+            }
             
-            echo "Sending to server..."
+            console.log(\`\\n=== Processing Summary ===\`);
+            console.log(\`Files processed: \${processedFiles}/\${changedFiles.length}\`);
+            console.log(\`Total test files created: \${totalTestsCreated}\`);
             
-            HTTP_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-              https://f7296a34e54b.ngrok-free.app/inputCode \
-              -H "Content-Type: application/json" \
-              -H "ngrok-skip-browser-warning: true" \
-              -d "$JSON_PAYLOAD")
+            // Save processing summary
+            const summary = {
+              timestamp: new Date().toISOString(),
+              filesProcessed: processedFiles,
+              totalFiles: changedFiles.length,
+              testFilesCreated: totalTestsCreated,
+              hasTests: totalTestsCreated > 0,
+              results: allResults
+            };
             
-            HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1 | cut -d: -f2)
-            RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+            fs.writeFileSync('processing_summary.json', JSON.stringify(summary, null, 2));
             
-            echo "HTTP Status: $HTTP_STATUS"
-            echo "Server response: $RESPONSE_BODY"
+            return summary;
+          }
+          
+          processAllFiles().catch(console.error);
+          "
+
+      - name: Run generated tests and create reports
+        if: env.HAS_FILES == 'true'
+        run: |
+          echo "=== Running Generated Tests ==="
+          
+          # Check if tests were created
+          if [ -f "processing_summary.json" ]; then
+            TEST_FILES_CREATED=$(node -p "JSON.parse(require('fs').readFileSync('processing_summary.json', 'utf8')).testFilesCreated")
             
-            if [ "$HTTP_STATUS" = "200" ]; then
-              echo "Successfully sent $file"
+            if [ "$TEST_FILES_CREATED" -gt 0 ]; then
+              echo "Running $TEST_FILES_CREATED generated test files..."
+              
+              # Install common testing dependencies
+              npm init -y 2>/dev/null || true
+              npm install --save-dev jest @types/jest 2>/dev/null || echo "Jest installation attempted"
+              
+              # Run tests and generate reports
+              node -e "
+              const { TestRunner } = require('./testRunner.js');
+              const fs = require('fs');
+              
+              async function runTestsAndReport() {
+                console.log('Starting test execution...');
+                
+                const runner = new TestRunner('tests', 'test-reports');
+                const result = await runner.runAllTests();
+                
+                if (result.success) {
+                  console.log('✓ Test execution completed successfully');
+                  console.log(\`Report saved to: \${result.reportPath}\`);
+                  
+                  // Update processing summary with test results
+                  let summary = {};
+                  if (fs.existsSync('processing_summary.json')) {
+                    summary = JSON.parse(fs.readFileSync('processing_summary.json', 'utf8'));
+                  }
+                  
+                  summary.testExecution = {
+                    completed: true,
+                    timestamp: new Date().toISOString(),
+                    totalTests: result.results.totalFiles,
+                    passed: result.results.summary.passed,
+                    failed: result.results.summary.failed,
+                    reportPath: result.reportPath
+                  };
+                  
+                  fs.writeFileSync('processing_summary.json', JSON.stringify(summary, null, 2));
+                  
+                  console.log('=== Final Summary ===');
+                  console.log(\`Test files created: \${summary.testFilesCreated}\`);
+                  console.log(\`Tests executed: \${summary.testExecution.totalTests}\`);
+                  console.log(\`Tests passed: \${summary.testExecution.passed}\`);
+                  console.log(\`Tests failed: \${summary.testExecution.failed}\`);
+                } else {
+                  console.error('✗ Test execution failed:', result.error);
+                }
+              }
+              
+              runTestsAndReport().catch(console.error);
+              "
             else
-              echo "Failed to send $file (HTTP $HTTP_STATUS)"
+              echo "No test files were created, skipping test execution"
             fi
+          else
+            echo "No processing summary found"
+          fi
+
+      - name: Commit and push test files and reports
+        if: env.HAS_FILES == 'true'
+        run: |
+          # Check if anything was created
+          if [ -f "processing_summary.json" ]; then
+            PROCESSING_SUMMARY=$(cat processing_summary.json)
+            TEST_FILES_CREATED=$(echo "$PROCESSING_SUMMARY" | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8')).testFilesCreated")
             
-            echo "------------------------"
-          done
+            if [ "$TEST_FILES_CREATED" -gt 0 ]; then
+              echo "=== Committing test files and reports ==="
+              
+              # Configure git
+              git config --local user.email "action@github.com"
+              git config --local user.name "GitHub Action"
+              
+              # Add all generated content
+              git add tests/ test-reports/ processing_summary.json
+              
+              # Check if there are changes to commit
+              if git diff --staged --quiet; then
+                echo "No new files to commit"
+              else
+                # Create detailed commit message with summary
+                TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+                
+                git commit -m "Auto-generated tests and reports [$TIMESTAMP]
+
+                📊 Processing Summary:
+                $(echo "$PROCESSING_SUMMARY" | jq -r 'to_entries[] | "• \(.key): \(.value)"' 2>/dev/null || echo "$PROCESSING_SUMMARY")
+                
+                🔍 Generated from commit: ${{ github.sha }}
+                🔧 Workflow run: ${{ github.run_id }}
+                📁 Files processed: $CHANGED_FILES
+                ⚡ Action: Automated test generation and execution"
+                
+                # Push the changes
+                git push
+                echo "✓ Test files and reports committed and pushed successfully"
+                
+                # Display final summary
+                echo "=== WORKFLOW COMPLETED SUCCESSFULLY ==="
+                echo "Check the following directories:"
+                echo "• tests/ - Generated test files"
+                echo "• test-reports/ - Test execution reports with timestamps"
+                echo "• processing_summary.json - Complete processing summary"
+              fi
+            else
+              echo "No test files were created from server responses"
+            fi
+          else
+            echo "No processing summary found"
+          fi
 
       - name: No JS/TS files found
         if: env.HAS_FILES == 'false'

@@ -1,12 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-
-/**
- * Write files from JSON string or object to the tests folder.
- * Strips Markdown-style ```json wrapping if present.
- * @param {string|Object} input - JSON string (possibly with backticks) or object
- * @param {string} folder - folder to create files in (default: 'tests')
- */
 function createTestFiles(input, folder = 'tests') {
   let filesJson;
 
@@ -48,8 +41,7 @@ function createTestFiles(input, folder = 'tests') {
 }
 
 // Example usage with Markdown-wrapped JSON
-const pureJson = markdownJson.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
-const markdownJson = "```json\n{\n  \"tests/diff.test.js\": \"console.log('test');\"\n}\n```";
+const json = "```json\n{\n  \"tests/diff.test.js\": \"const diff = require('../diff');\\nconst testCases = require('./diff.testCase.json');\\n\\ndescribe('diff', () => {\\n  testCases.diff.forEach(testCase => {\\n    test(testCase.description, () => {\\n      expect(diff(...testCase.input)).toBe(testCase.expected);\\n    });\\n  });\\n});\\n\",\n  \"tests/diff.testCase.json\": \"{\\n  \\\"diff\\\": [\\n    {\\\"input\\\": [2,3], \\\"expected\\\": 6, \\\"description\\\": \\\"should correctly multiply two positive integers\\\"},\\n    {\\\"input\\\": [5,0], \\\"expected\\\": 0, \\\"description\\\": \\\"should return zero when one operand is zero\\\"},\\n    {\\\"input\\\": [-2,3], \\\"expected\\\": -6, \\\"description\\\": \\\"should correctly multiply a negative and a positive number\\\"},\\n    {\\\"input\\\": [1000000,2], \\\"expected\\\": 2000000, \\\"description\\\": \\\"should correctly multiply a large number by two\\\"},\\n    {\\\"input\\\": [\\\"a\\\",2], \\\"expected\\\": \\\"NaN\\\", \\\"description\\\": \\\"should return NaN when inputs are not numbers\\\"}\\n  ]\\n}\"\n}\n```"
 
 
-createTestFiles(markdownJson);
+createTestFiles(json);
