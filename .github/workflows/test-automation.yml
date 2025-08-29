@@ -1,4 +1,4 @@
-name: Run Jest Tests, Commit Reports, and Send File Tree
+name: Send Files to Server
 
 on:
   push:
@@ -6,21 +6,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  test_and_commit_and_send:
+  send_files:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 20
-
-      - name: Install Dependencies
-        run: npm install
 
       - name: Get changed files
         id: files
@@ -28,29 +19,15 @@ jobs:
           echo "CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ' ')" >> $GITHUB_ENV
           echo "Changed files: $CHANGED_FILES"
 
-      - name: Send Changed Files to Server
+      - name: Send changed files to server
         run: |
-          echo "Preparing to send changed files..."
           for file in $CHANGED_FILES; do
-            echo "Processing file: $file"
-            FILE_CONTENT=$(cat "$file" | jq -Rs .)
-            echo "File content length: $(echo $FILE_CONTENT | wc -c)"
-            curl -v -X POST ${{ secrets.SERVER_URL }}/inputCode \
+            echo "---- Sending $file ----"
+            CONTENT=$(jq -Rs . < "$file")   # escape file content safely
+            RESPONSE=$(curl -s -X POST https://d29d1f0bf9c4.ngrok-free.app/inputCode \
               -H "Content-Type: application/json" \
-              -d "{\"file_path\":\"$file\",\"content\":$FILE_CONTENT,\"commit_sha\":\"${GITHUB_SHA}\"}"
+              -d "{\"file_path\":\"$file\",\"content\":$CONTENT}")
+            echo "✅ Server response for $file:"
+            echo "$RESPONSE"
+            echo "------------------------"
           done
-
-      - name: Run Jest Tests and Generate Report
-        run: |
-          echo "Running Jest tests..."
-          npx jest --json --outputFile=jest-report.json || true
-          cat jest-report.json
-
-      - name: Commit Test Report
-        run: |
-          echo "Saving jest report..."
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add jest-report.json
-          git commit -m "Add Jest test report for ${{ github.sha }}" || echo "No changes to commit"
-          git push
