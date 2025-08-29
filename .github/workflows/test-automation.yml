@@ -1,106 +1,56 @@
-name: Run Jest Tests and Commit Reports
+name: Run Jest Tests, Commit Reports, and Send File Tree
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  test_and_commit:
+  test_and_commit_and_send:
     runs-on: ubuntu-latest
-    # Permissions are required to write the test report back to the repository
     permissions:
       contents: write
-
     steps:
-      # Step 1: Check out the repository code
-      # fetch-depth: 0 is needed to get the full commit history to compare file changes.
       - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@v3
 
-      # Step 2: Set up the Node.js environment
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: 20
 
-      # Step 3: Install project dependencies (like Jest)
       - name: Install Dependencies
         run: npm install
 
-      # Step 4: Identify only the files that have changed in this push
-      # This action finds all changed files ending with .js, .ts, .jsx, or .tsx.
       - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v44
-        with:
-          files: |
-            **/*.js
-            **/*.ts
-            **/*.jsx
-            **/*.tsx
-
-      # Step 5: Send changed file(s) to the server for processing
-      # This step iterates over each changed file, creates a JSON payload,
-      # and sends it to your server endpoint for test generation.
-      # IMPORTANT: Replace `https://your-server.com/generate-tests` with your actual server URL.
-      - name: Send Changed Files to Server
-        if: steps.changed-files.outputs.any_changed == 'true'
+        id: files
         run: |
-          echo "=== DEBUG: Changed files from changed-files action ==="
-          echo "${{ steps.changed-files.outputs.all_changed_files }}"
-          echo "==============================================="
-              
-          IFS=$'\n'
-          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-            echo "Preparing and sending $file to the server..."
-              
-            # Run inline Node.js script to safely generate JSON payload
-            node -e "
-              const fs = require('fs');
-              const filePath = process.argv[2];
-              console.log('DEBUG: Processing filePath ->', filePath);
-              try {
-                const content = fs.readFileSync(filePath, 'utf-8');
-                const payload = {
-                  file_path: filePath,
-                  content: content,
-                  commit_sha: '${{ github.sha }}',
-                };
-                fs.writeFileSync('payload.json', JSON.stringify(payload, null, 2));
-                console.log('DEBUG: payload.json written successfully');
-              } catch (err) {
-                console.error('ERROR: Failed to process file', filePath, err);
-                process.exit(1);
-              }
-            " "$file"
-              
-            echo "DEBUG: Sending payload.json for $file"
-            curl -v -X POST https://2fff1226ace9.ngrok-free.app/inputCode \
+          echo "CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ' ')" >> $GITHUB_ENV
+          echo "Changed files: $CHANGED_FILES"
+
+      - name: Send Changed Files to Server
+        run: |
+          echo "Preparing to send changed files..."
+          for file in $CHANGED_FILES; do
+            echo "Processing file: $file"
+            FILE_CONTENT=$(cat "$file" | jq -Rs .)
+            echo "File content length: $(echo $FILE_CONTENT | wc -c)"
+            curl -v -X POST ${{ secrets.SERVER_URL }}/inputCode \
               -H "Content-Type: application/json" \
-              --data-binary @payload.json
+              -d "{\"file_path\":\"$file\",\"content\":$FILE_CONTENT,\"commit_sha\":\"${GITHUB_SHA}\"}"
           done
 
-      # Step 6: Run Jest tests only on the changed files
-      # This step still runs your local tests and generates a report.
-      # It uses Jest's `--findRelatedTests` to intelligently run only the necessary tests.
-      # The test results are saved to `test-report.json`.
-      # `|| true` ensures the workflow continues even if tests fail, so the report is always committed.
       - name: Run Jest Tests and Generate Report
-        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          npx jest --findRelatedTests ${{ steps.changed-files.outputs.all_changed_files }} --json --outputFile=test-report.json || true
+          echo "Running Jest tests..."
+          npx jest --json --outputFile=jest-report.json || true
+          cat jest-report.json
 
-      # Step 7: Commit the generated test report back to the repository
-      # This step also only runs if tests were actually run.
       - name: Commit Test Report
-        if: steps.changed-files.outputs.any_changed == 'true'
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add test-report.json
-          # Commit only if there are changes to the report file to avoid empty commits
-          git diff --staged --quiet || git commit -m "chore: update test report"
+          echo "Saving jest report..."
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add jest-report.json
+          git commit -m "Add Jest test report for ${{ github.sha }}" || echo "No changes to commit"
           git push
