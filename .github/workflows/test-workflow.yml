@@ -124,24 +124,172 @@ jobs:
         run: |
           echo "=== Creating test files from server responses ==="
 
-          # Create the file processor script
+          # Create the robust file processor script with malformed JSON handling
           cat > process_responses.js << 'EOF'
           const fs = require('fs');
           const path = require('path');
 
+          /**
+           * Converts malformed JSON string with escaped characters to proper JSON
+           * @param {string} malformedJsonString - The malformed JSON string from server
+           * @returns {object} - Clean parsed JSON object
+           */
+          function cleanAndParseJson(malformedJsonString) {
+            try {
+              let outputContent = '';
+              
+              // Method 1: Try to parse as valid JSON first
+              try {
+                const outerJson = JSON.parse(malformedJsonString);
+                if (outerJson.output) {
+                  outputContent = outerJson.output;
+                } else {
+                  throw new Error('No output field found');
+                }
+              } catch (parseError) {
+                // Method 2: Handle malformed outer JSON with raw newlines
+                console.log('⚠️ Outer JSON is malformed, extracting manually...');
+                
+                // Pre-process: Find the output field and extract its content
+                const outputStart = malformedJsonString.indexOf('"output":');
+                if (outputStart === -1) {
+                  throw new Error('No "output" field found');
+                }
+                
+                // Find the opening quote after "output":
+                const valueStart = malformedJsonString.indexOf('"', outputStart + 9);
+                if (valueStart === -1) {
+                  throw new Error('Malformed output field');
+                }
+                
+                // Find the end by looking for the pattern: quote followed by newline and closing brace
+                let valueEnd = -1;
+                
+                // Look for the content between quotes
+                for (let i = valueStart + 1; i < malformedJsonString.length; i++) {
+                  const char = malformedJsonString[i];
+                  const nextChar = malformedJsonString[i + 1];
+                  
+                  // Look for the end pattern: "\n}\n or "}
+                  if (char === '"' && (nextChar === '\n' || nextChar === '\r')) {
+                    const remaining = malformedJsonString.substring(i + 1).trim();
+                    if (remaining.startsWith('}')) {
+                      valueEnd = i;
+                      break;
+                    }
+                  }
+                }
+                
+                if (valueEnd === -1) {
+                  // Fallback: find the last quote before a closing brace
+                  const lastBrace = malformedJsonString.lastIndexOf('}');
+                  const lastQuote = malformedJsonString.lastIndexOf('"', lastBrace);
+                  if (lastQuote > valueStart) {
+                    valueEnd = lastQuote;
+                  } else {
+                    throw new Error('Could not find end of output field');
+                  }
+                }
+                
+                // Extract the raw content
+                outputContent = malformedJsonString.substring(valueStart + 1, valueEnd);
+              }
+              
+              // Clean the extracted content
+              if (!outputContent) {
+                throw new Error('No content extracted from output field');
+              }
+              
+              // Remove "json\n" or "json\\n" prefix
+              outputContent = outputContent.replace(/^json\n/, '').replace(/^json\\n/, '').replace(/^json/, '');
+              
+              // Handle the content step by step
+              let cleanedContent = outputContent;
+              
+              // If we have raw newlines (not escaped), we need to handle them carefully
+              if (cleanedContent.includes('\n') && !cleanedContent.includes('\\n')) {
+                // Split by actual newlines and rejoin with escaped newlines for processing
+                const lines = cleanedContent.split('\n');
+                cleanedContent = lines.join('\\n');
+              }
+              
+              // Now process escaped characters
+              // Handle escaped quotes first
+              cleanedContent = cleanedContent.replace(/\\"/g, '"');
+              
+              // Convert escaped newlines back to actual newlines
+              cleanedContent = cleanedContent.replace(/\\n/g, '\n');
+              
+              // Handle escaped backslashes
+              cleanedContent = cleanedContent.replace(/\\\\/g, '\\');
+              
+              // Clean up boundaries
+              cleanedContent = cleanedContent.trim();
+              
+              // Ensure proper JSON structure
+              if (!cleanedContent.startsWith('{')) {
+                const braceIdx = cleanedContent.indexOf('{');
+                if (braceIdx !== -1) {
+                  cleanedContent = cleanedContent.substring(braceIdx);
+                }
+              }
+              
+              if (!cleanedContent.endsWith('}')) {
+                const lastBraceIdx = cleanedContent.lastIndexOf('}');
+                if (lastBraceIdx !== -1) {
+                  cleanedContent = cleanedContent.substring(0, lastBraceIdx + 1);
+                }
+              }
+              
+              // Attempt to parse
+              let cleanJson;
+              try {
+                cleanJson = JSON.parse(cleanedContent);
+              } catch (finalParseError) {
+                console.log('🔧 Attempting final JSON repair...');
+                
+                // Remove trailing commas before closing braces/brackets
+                let repairedContent = cleanedContent.replace(/,(\s*[}\]])/g, '$1');
+                
+                try {
+                  cleanJson = JSON.parse(repairedContent);
+                } catch (stillFailed) {
+                  console.error('❌ Could not repair JSON. Original error:', finalParseError.message);
+                  console.error('❌ Content preview:', cleanedContent.substring(0, 200));
+                  throw finalParseError;
+                }
+              }
+              
+              console.log('✅ Successfully cleaned and parsed JSON');
+              return cleanJson;
+              
+            } catch (error) {
+              console.error('❌ Error cleaning JSON:', error.message);
+              console.error('❌ Input preview:', malformedJsonString.substring(0, 300) + '...');
+              throw error;
+            }
+          }
+
           function createTestFiles(input, folder = 'tests') {
             let filesJson;
 
-            // If input is a string, parse it
+            // If input is a string, try to clean and parse it
             if (typeof input === 'string') {
-              // Remove ```json and ``` wrapping
+              // Remove ```json and ``` wrapping first
               input = input.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
 
               try {
+                // Try regular JSON parse first
                 filesJson = JSON.parse(input);
               } catch (err) {
-                console.error('Failed to parse JSON:', err);
-                return;
+                console.log('Regular JSON parse failed, trying robust cleaning...');
+                try {
+                  // Use our robust JSON cleaner
+                  filesJson = cleanAndParseJson(input);
+                } catch (cleanErr) {
+                  console.error('Failed to parse JSON even with cleaning:', cleanErr);
+                  return;
+                }
               }
             } else if (typeof input === 'object') {
               filesJson = input;
@@ -172,10 +320,16 @@ jobs:
           // Process all server response files
           const responseFiles = fs.readdirSync('.').filter(file => file.startsWith('server_response_') && file.endsWith('.json'));
 
+          if (responseFiles.length === 0) {
+            console.log('No server response files found');
+            process.exit(0);
+          }
+
           responseFiles.forEach(responseFile => {
             console.log(`\nProcessing ${responseFile}...`);
             try {
               const responseContent = fs.readFileSync(responseFile, 'utf8');
+              console.log(`Response content preview: ${responseContent.substring(0, 100)}...`);
               createTestFiles(responseContent);
               
               // Clean up the temporary response file
