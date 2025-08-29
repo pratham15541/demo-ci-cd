@@ -35,28 +35,31 @@ jobs:
           echo "EOF" >> $GITHUB_ENV
 
       - name: Create test files from JSON
+        env:
+          SERVER_JSON: ${{ env.SERVER_JSON }}
         run: |
           echo "=== Creating test files ==="
           echo "$SERVER_JSON" > server_tests.json
-          node -e "
+          
+          node <<'EOF'
           const fs = require('fs');
           const path = require('path');
-          const input = fs.readFileSync('server_tests.json','utf8');
+          const input = fs.readFileSync('server_tests.json','utf8').trim();
+
+          console.log("Raw server_tests.json content:\n", input);
 
           function createTestFiles(input, folder = 'tests') {
             let filesJson;
             if (typeof input === 'string') {
-              input = input.replace(/^```json\\s*/i, '').replace(/```$/i, '').trim();
+              const clean = input.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
               try {
-                filesJson = JSON.parse(input);
+                filesJson = JSON.parse(clean);
               } catch (err) {
-                console.error('Failed to parse JSON:', err);
+                console.error('❌ Failed to parse JSON. Response was probably HTML.\n', err.message);
                 process.exit(1);
               }
-            } else if (typeof input === 'object') {
-              filesJson = input;
             } else {
-              console.error('Invalid input format');
+              console.error('❌ Invalid input format');
               process.exit(1);
             }
 
@@ -68,12 +71,12 @@ jobs:
             for (const [filename, content] of Object.entries(filesJson)) {
               const filePath = path.join(folder, path.basename(filename));
               fs.writeFileSync(filePath, content, 'utf8');
-              console.log('Created/Updated file:', filePath);
+              console.log('✅ Created/Updated file:', filePath);
             }
           }
 
           createTestFiles(input);
-          "
+          EOF
 
       - name: Run tests and generate JSON report
         run: |
