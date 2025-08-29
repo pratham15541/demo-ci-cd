@@ -1,44 +1,89 @@
-// cleanJson.js
-function cleanJson(rawJsonStr) {
-  // Parse the raw JSON string
-  let parsed;
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Parses a JSON string containing file paths and content,
+ * then creates the corresponding directories and files.
+ *
+ * @param {string} rawJsonString The raw JSON string, potentially wrapped in markdown code blocks.
+ */
+function createFilesFromJson(rawJsonString) {
   try {
-    parsed = JSON.parse(rawJsonStr);
-  } catch (err) {
-    throw new Error('Invalid JSON string');
-  }
+    // 1. Clean the input string to extract the pure JSON object.
+    const startIndex = rawJsonString.indexOf('{');
+    const endIndex = rawJsonString.lastIndexOf('}');
+    if (startIndex === -1 || endIndex === -1) {
+      throw new Error('Invalid JSON string: Could not find opening or closing brace.');
+    }
+    const cleanJsonString = rawJsonString.substring(startIndex, endIndex + 1);
 
-  // If the structure has an "output" key, extract the inner JSON string
-  if (parsed.output) {
-    let innerJsonStr = parsed.output;
+    // 2. Parse the cleaned JSON string.
+    const filesToCreate = JSON.parse(cleanJsonString);
 
-    // Remove leading "json\n" if present
-    if (innerJsonStr.startsWith('json\n')) {
-      innerJsonStr = innerJsonStr.slice(5);
+    // 3. Check if the parsed object has an "output" wrapper and extract the actual files
+    let actualFiles;
+    if (filesToCreate.output) {
+      // If there's an output wrapper, try to parse the nested JSON
+      let outputContent = filesToCreate.output;
+      
+      // Remove "json\n" prefix if present
+      outputContent = outputContent.replace(/^json\s*\n?/, '');
+      
+      // Remove trailing characters like \n" that might be present
+      outputContent = outputContent.replace(/\n"$/, '');
+      
+      try {
+        actualFiles = JSON.parse(outputContent);
+      } catch (parseError) {
+        console.error('❌ Failed to parse nested JSON in output field');
+        console.error('❌ Output content:', outputContent.substring(0, 200) + '...');
+        throw parseError;
+      }
+    } else {
+      // If no output wrapper, use the object directly
+      actualFiles = filesToCreate;
     }
 
-    // Parse the inner JSON
-    try {
-      parsed = JSON.parse(innerJsonStr);
-    } catch (err) {
-      throw new Error('Invalid inner JSON string');
+    // 4. Remove duplicate entries (keep the last occurrence)
+    const uniqueFiles = {};
+    for (const filePath in actualFiles) {
+      uniqueFiles[filePath] = actualFiles[filePath];
     }
-  }
 
-  // Replace escaped carriage returns (\r) with empty and fix escaped line breaks
-  for (const key in parsed) {
-    if (typeof parsed[key] === 'string') {
-      parsed[key] = parsed[key].replace(/\r/g, '');
+    // 5. Iterate over the files object.
+    for (const filePath in uniqueFiles) {
+      if (Object.hasOwnProperty.call(uniqueFiles, filePath)) {
+        const fileContent = uniqueFiles[filePath];
+
+        // 5. Get the directory name from the file path.
+        const dirName = path.dirname(filePath);
+
+        // 6. Create the directory recursively if it doesn't exist.
+        if (dirName && dirName !== '.' && !fs.existsSync(dirName)) {
+          fs.mkdirSync(dirName, { recursive: true });
+          console.log(`✅ Created directory: ${dirName}`);
+        }
+
+        // 7. Write the file with its content.
+        fs.writeFileSync(filePath, fileContent);
+        console.log(`📄 Created file: ${filePath}`);
+      }
     }
-  }
+    console.log('\n✨ All files and directories created successfully!');
 
-  return parsed;
+  } catch (error) {
+    console.error('❌ An error occurred:', error.message);
+    console.error('❌ Full error:', error);
+  }
 }
 
-// Example usage:
-const rawJsonStr = `{
-    "output": "json\n{\n  \"tests/add.test.js\": \"const add = require('../add');\\r\\nconst testCases = require('./add.testCase.json');\\r\\n\\r\\ndescribe('add', () => {\\r\\n  testCases.add.forEach(testCase => {\\r\\n    test(testCase.description, () => {\\r\\n      expect(add(...testCase.input)).toBe(testCase.expected);\\r\\n    });\\r\\n  });\\r\\n});\\r\\n\",\n  \"tests/add.testCase.json\": \"{\\r\\n  \\\"add\\\": [\\r\\n    {\\\"input\\\": [1, 2], \\\"expected\\\": 3, \\\"description\\\": \\\"should correctly add two positive numbers\\\"},\\r\\n    {\\\"input\\\": [0, 0], \\\"expected\\\": 0, \\\"description\\\": \\\"should return zero when adding two zeros\\\"},\\r\\n    {\\\"input\\\": [-5, -3], \\\"expected\\\": -8, \\\"description\\\": \\\"should correctly add two negative numbers\\\"},\\r\\n    {\\\"input\\\": [\\\"1\\\", 2], \\\"expected\\\": 3, \\\"description\\\": \\\"should handle type coercion from string to number\\\"},\\r\\n    {\\\"input\\\": [1000000, 2000000], \\\"expected\\\": 3000000, \\\"description\\\": \\\"should correctly add large numbers\\\"}\\r\\n  ]\\r\\n}\",\n  \"tests/binary-search.test.js\": \"const binarySearch = require('../binary-search');\\r\\nconst testCases = require('./binary-search.testCase.json');\\r\\n\\r\\ndescribe('binarySearch', () => {\\r\\n  testCases.binarySearch.forEach(testCase => {\\r\\n    test(testCase.description, () => {\\r\\n      const [arr, target] = testCase.input;\\r\\n      expect(binarySearch(arr, target)).toBe(testCase.expected);\\r\\n    });\\r\\n  });\\r\\n});\\r\\n\",\n  \"tests/binary-search.testCase.json\": \"{\\r\\n  \\\"binarySearch\\\": [\\r\\n    {\\\"input\\\": [[1, 2, 3, 4, 5], 3], \\\"expected\\\": 2, \\\"description\\\": \\\"should find the target in the middle of the array\\\"},\\r\\n    {\\\"input\\\": [[10, 20, 30, 40], 10], \\\"expected\\\": 0, \\\"description\\\": \\\"should find the target at the beginning of the array\\\"},\\r\\n    {\\\"input\\\": [[10, 20, 30, 40], 40], \\\"expected\\\": 3, \\\"description\\\": \\\"should find the target at the end of the array\\\"},\\r\\n    {\\\"input\\\": [[1, 3, 5, 7, 9], 4], \\\"expected\\\": -1, \\\"description\\\": \\\"should return -1 if the target is not found\\\"},\\r\\n    {\\\"input\\\": [[], 5], \\\"expected\\\": -1, \\\"description\\\": \\\"should return -1 for an empty array\\\"}\\r\\n  ]\\r\\n}\",\n  \"tests/diff.test.js\": \"const diff = require('../diff');\\r\\nconst testCases = require('./diff.testCase.json');\\r\\n\\r\\ndescribe('diff', () => {\\r\\n  testCases.diff.forEach(testCase => {\\r\\n    test(testCase.description, () => {\\r\\n      expect(diff(...testCase.input)).toBe(testCase.expected);\\r\\n    });\\r\\n  });\\r\\n});\\r\\n\",\n  \"tests/diff.testCase.json\": \"{\\r\\n  \\\"diff\\\": [\\r\\n    {\\\"input\\\": [7, 3], \\\"expected\\\": 4, \\\"description\\\": \\\"should correctly subtract two positive numbers\\\"},\\r\\n    {\\\"input\\\": [10, 0], \\\"expected\\\": 10, \\\"description\\\": \\\"should return the first number when subtracting zero\\\"},\\r\\n    {\\\"input\\\": [-5, -2], \\\"expected\\\": -3, \\\"description\\\": \\\"should correctly subtract negative numbers\\\"},\\r\\n    {\\\"input\\\": [3, 7], \\\"expected\\\": -4, \\\"description\\\": \\\"should return a negative result when subtracting a larger number from a smaller one\\\"},\\r\\n    {\\\"input\\\": [\\\"10\\\", 3], \\\"expected\\\": 7, \\\"description\\\": \\\"should handle type coercion from string to number\\\"}\\r\\n  ]\\r\\n}\"\n}\n"
+// --- Fixed Example JSON ---
+const fixedInputJson = `{
+  "tests/add.test.js": "const add = require('../add.js');\\nconst testCases = require('./add.testCase.json');\\n\\ndescribe('add', () => {\\n  test.each(testCases.add)(\\n    'Function should %s',\\n    ({ input, expected, description }) => {\\n      expect(add(...input)).toBe(expected);\\n    }\\n  );\\n});",
+  "tests/add.testCase.json": "{\\n  \\"add\\": [\\n    {\\n      \\"input\\": [2, 3],\\n      \\"expected\\": 5,\\n      \\"description\\": \\"correctly add two positive integers\\"\\n    },\\n    {\\n      \\"input\\": [0, -5],\\n      \\"expected\\": -5,\\n      \\"description\\": \\"correctly add zero and a negative integer\\"\\n    },\\n    {\\n      \\"input\\": [0.1, 0.2],\\n      \\"expected\\": 0.30000000000000004,\\n      \\"description\\": \\"handle floating point addition with JavaScript's precision\\"\\n    },\\n    {\\n      \\"input\\": [\\"Hello, \\", \\"World!\\"],\\n      \\"expected\\": \\"Hello, World!\\",\\n      \\"description\\": \\"concatenate strings when both inputs are strings\\"\\n    },\\n    {\\n      \\"input\\": [10, \\"5\\"],\\n      \\"expected\\": \\"105\\",\\n      \\"description\\": \\"concatenate a number and a string\\"\\n    }\\n  ]\\n}",
+  "tests/diff.test.js": "const diff = require('../diff.js');\\nconst testCases = require('./diff.testCase.json');\\n\\ndescribe('diff', () => {\\n  test.each(testCases.diff)(\\n    'Function should %s',\\n    ({ input, expected, description }) => {\\n      if (Number.isNaN(expected)) {\\n        expect(Number.isNaN(diff(...input))).toBe(true);\\n      } else {\\n        expect(diff(...input)).toBe(expected);\\n      }\\n    }\\n  );\\n});",
+  "tests/diff.testCase.json": "{\\n  \\"diff\\": [\\n    {\\n      \\"input\\": [10, 3],\\n      \\"expected\\": 7,\\n      \\"description\\": \\"correctly subtract two positive integers\\"\\n    },\\n    {\\n      \\"input\\": [3, 10],\\n      \\"expected\\": -7,\\n      \\"description\\": \\"return a negative result when the first number is smaller\\"\\n    },\\n    {\\n      \\"input\\": [5, 5],\\n      \\"expected\\": 0,\\n      \\"description\\": \\"return zero when numbers are equal\\"\\n    },\\n    {\\n      \\"input\\": [5.5, 2.3],\\n      \\"expected\\": 3.2,\\n      \\"description\\": \\"handle floating point subtraction\\"\\n    },\\n    {\\n      \\"input\\": [\\"abc\\", 5],\\n      \\"expected\\": \\"NaN\\",\\n      \\"description\\": \\"return NaN for non-numeric string input\\"\\n    }\\n  ]\\n}"
 }`;
 
-const cleaned = cleanJson(rawJsonStr);
-console.log(cleaned);
+// Run the function with the corrected data.
+createFilesFromJson(fixedInputJson);
