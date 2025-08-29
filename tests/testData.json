@@ -1,5 +1,5 @@
 [
-  { "a": 1, "b": 2, "expected": 3 },
-  { "a": 5, "b": 7, "expected": 12 },
-  { "a": -1, "b": -1, "expected": -2 }
+  { "a": 1, "b": 2, "expectedAdd": 3,"expectedDiff":-1 },
+  { "a": 5, "b": 7, "expectedAdd": 12,"expectedDiff":-2 },
+  { "a": -1, "b": -1, "expectedAdd": -2,"expectedDiff":0 }
 ]
