@@ -21,19 +21,7 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Run Jest Tests and Save JSON Report
-        run: |
-          mkdir -p test-reports
-          TIMESTAMP=$(date +%s)
-          npx jest --json --outputFile=test-reports/jest-report-$TIMESTAMP.json
-
-      - name: Commit Jest Report to Repository
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add test-reports/*.json
-          git commit -m "Add Jest test report from GitHub Actions" || true
-          git push
+     
 
       - name: Generate File Tree JSON
         run: |
