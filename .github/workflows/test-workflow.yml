@@ -29,10 +29,8 @@ jobs:
         run: |
           echo "=== Getting JS/TS files from last commit ==="
 
-          # Get files from last commit only
           ALL_FILES=$(git show --pretty="" --name-only HEAD)
 
-          # Filter only JS/TS files
           CHANGED_FILES=""
           for file in $ALL_FILES; do
             case "$file" in
@@ -120,7 +118,6 @@ jobs:
         run: |
           echo "=== Creating test files from server responses ==="
           
-          # Create the file processor script with your function included
           cat > process_responses.js << 'EOF'
           const fs = require('fs');
           const path = require('path');
@@ -193,10 +190,8 @@ jobs:
           });
           EOF
           
-          # Run the processor
           node process_responses.js
           
-          # Clean up the processor script
           rm process_responses.js
 
       - name: Configure Git
