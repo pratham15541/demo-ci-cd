@@ -1,184 +1,127 @@
-name: Send Files to Server and Create Tests
+name: Auto Generate Tests
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  send_files_and_create_tests:
+  generate_and_run_tests:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 2
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # 2️⃣ Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
 
-      - name: Get changed JS/TS files
-        id: files
+      # 3️⃣ Get changed JS/TS files
+      - name: Detect changed JS/TS files
+        id: detect_files
         run: |
-          ALL_FILES=$(git show --pretty="" --name-only HEAD)
-          CHANGED_FILES=""
-          for file in $ALL_FILES; do
-            case "$file" in
-              *.js|*.jsx|*.ts|*.tsx)
-                if [ -f "$file" ]; then
-                  CHANGED_FILES="$CHANGED_FILES $file"
-                fi
-                ;;
-            esac
-          done
-          
-          CHANGED_FILES=$(echo $CHANGED_FILES | xargs)
-          echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
-          
-          if [ -z "$CHANGED_FILES" ]; then
-            echo "HAS_FILES=false" >> $GITHUB_ENV
-          else
-            echo "HAS_FILES=true" >> $GITHUB_ENV
-          fi
+          CHANGED=$(git show --pretty="" --name-only HEAD | grep -E '\.(js|jsx|ts|tsx)$' || true)
+          echo "CHANGED_FILES=$CHANGED" >> $GITHUB_ENV
+          echo "HAS_FILES=$([ -z "$CHANGED" ] && echo false || echo true)" >> $GITHUB_ENV
 
-      - name: Process files and create tests
+      # 4️⃣ Create JSON decoder
+      - name: Create JSON decoder
         if: env.HAS_FILES == 'true'
         run: |
-          # Create JSON decoder
           cat > jsonDecoder.js << 'EOF'
           const fs = require('fs');
           const path = require('path');
+
+          class JsonDecoder {
+            constructor() { this.decodedData = null; }
+            decode(serverResponse) {
+              if (!serverResponse) return { success: false };
+              let data = typeof serverResponse === 'object' ? serverResponse : JSON.parse(serverResponse);
+              if (data.files) this.decodedData = data.files;
+              return { success: true, data: this.decodedData };
+            }
+            generateTestFiles(folder='tests', originalFile=null) {
+              if (!this.decodedData) return { success: false };
+              if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
+              let count = 0;
+              for (const [filename, content] of Object.entries(this.decodedData)) {
+                const safeName = originalFile ? path.basename(originalFile, path.extname(originalFile)) + '.test.js' : filename;
+                fs.writeFileSync(path.join(folder, safeName), content, 'utf8');
+                count++;
+              }
+              return { success: true, filesCreated: count };
+            }
+          }
+          module.exports = { JsonDecoder };
+          EOF
+
+      # 5️⃣ Send files to server and generate tests
+      - name: Send files and generate tests
+        if: env.HAS_FILES == 'true'
+        run: |
+          node -e "
+          const { JsonDecoder } = require('./jsonDecoder.js');
+          const fs = require('fs');
           const https = require('https');
           const http = require('http');
           const url = require('url');
 
-          async function processFiles() {
-            const changedFiles = process.env.CHANGED_FILES.split(' ').filter(f => f.trim());
-            let totalTestsCreated = 0;
+          const files = process.env.CHANGED_FILES.split(' ').filter(f=>f);
+          for (const file of files) {
+            const content = fs.readFileSync(file, 'utf8');
+            const payload = JSON.stringify({ file_path: file, content });
 
-            for (const file of changedFiles) {
-              if (!fs.existsSync(file)) continue;
-
-              try {
-                const content = fs.readFileSync(file, 'utf8');
-                const jsonPayload = JSON.stringify({
-                  file_path: file,
-                  content: content
-                });
-
-                const serverUrl = ' https://c2e16ccb313b.ngrok-free.app/inputCode';
-                const parsedUrl = url.parse(serverUrl);
-
-                const options = {
-                  hostname: parsedUrl.hostname,
-                  port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-                  path: parsedUrl.path,
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Content-Length': Buffer.byteLength(jsonPayload),
-                    'ngrok-skip-browser-warning': 'true'
-                  }
-                };
-
-                const response = await new Promise((resolve) => {
-                  const client = parsedUrl.protocol === 'https:' ? https : http;
-                  const req = client.request(options, (res) => {
-                    let responseBody = '';
-                    res.on('data', (chunk) => { responseBody += chunk; });
-                    res.on('end', () => resolve({ status: res.statusCode, body: responseBody }));
-                  });
-                  req.on('error', () => resolve({ status: 500, body: '' }));
-                  req.write(jsonPayload);
-                  req.end();
-                });
-
-                if (response.status === 200) {
-                  const testFiles = parseResponse(response.body);
-                  if (testFiles) {
-                    const created = createTestFiles(testFiles, file);
-                    totalTestsCreated += created;
-                  }
+            const serverUrl = ' https://c2e16ccb313b.ngrok-free.app/inputCode';
+            const parsed = url.parse(serverUrl);
+            const options = { hostname: parsed.hostname, port: parsed.port || (parsed.protocol==='https:'?443:80), path: parsed.path, method:'POST', headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)} };
+            
+            const client = parsed.protocol==='https:' ? https : http;
+            const req = client.request(options, res => {
+              let body = '';
+              res.on('data', chunk => body += chunk);
+              res.on('end', () => {
+                if (res.statusCode===200) {
+                  const decoder = new JsonDecoder();
+                  const result = decoder.decode(body);
+                  if (result.success) decoder.generateTestFiles('tests', file);
                 }
-              } catch (err) {
-                // Skip failed files
-              }
-            }
-
-            return totalTestsCreated;
+              });
+            });
+            req.write(payload); req.end();
           }
+          "
 
-          function parseResponse(responseBody) {
-            try {
-              let data = JSON.parse(responseBody);
-              return data.files || data.test_files || data.data || data;
-            } catch (err) {
-              // Try extracting from code blocks
-              const match = responseBody.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-              if (match) {
-                try {
-                  let data = JSON.parse(match[1].trim());
-                  return data.files || data.test_files || data.data || data;
-                } catch (e) {}
-              }
-              return null;
-            }
-          }
+      # 6️⃣ Run tests
+      - name: Run generated tests
+        if: env.HAS_FILES == 'true'
+        run: |
+          npm init -y 2>/dev/null || true
+          npm install --save-dev jest @types/jest 2>/dev/null || true
+          npx jest --json --outputFile=test-reports/results.json || true
 
-          function createTestFiles(testFiles, originalFile) {
-            if (!fs.existsSync('tests')) {
-              fs.mkdirSync('tests', { recursive: true });
-            }
-
-            let created = 0;
-            for (const [filename, content] of Object.entries(testFiles)) {
-              if (typeof content === 'string') {
-                try {
-                  let safeFilename = path.basename(filename);
-                  if (!safeFilename.includes('test')) {
-                    const originalName = path.basename(originalFile, path.extname(originalFile));
-                    const ext = path.extname(safeFilename) || '.test.js';
-                    safeFilename = `${originalName}.test${ext}`;
-                  }
-                  
-                  const filePath = path.join('tests', safeFilename);
-                  fs.writeFileSync(filePath, content, 'utf8');
-                  created++;
-                } catch (err) {
-                  // Skip failed files
-                }
-              }
-            }
-            return created;
-          }
-
-          processFiles().then(count => {
-            console.log(`Created ${count} test files`);
-            process.exit(0);
-          }).catch(() => process.exit(1));
-          EOF
-
-          node jsonDecoder.js
-
-      - name: Commit test files
+      # 7️⃣ Commit and push generated files
+      - name: Commit & Push
         if: env.HAS_FILES == 'true'
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
-          if [ -d "tests" ] && [ "$(ls -A tests 2>/dev/null)" ]; then
-            git add tests/
-            
-            if ! git diff --staged --quiet; then
-              git commit -m "Auto-generated tests from ${{ github.sha }}"
-              git push
-            fi
+          git add tests/ test-reports/ || true
+          if ! git diff --cached --quiet; then
+            git commit -m "Auto-generated tests and reports from last commit"
+            git push
           fi
 
-      - name: No files to process
+      # 8️⃣ No files found
+      - name: No JS/TS files
         if: env.HAS_FILES == 'false'
         run: echo "No JS/TS files found in last commit"
