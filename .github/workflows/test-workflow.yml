@@ -118,66 +118,12 @@ jobs:
       - name: Create test files from server response
         if: env.HAS_FILES == 'true' && env.RECEIVED_VALID_RESPONSE == 'true'
         run: |
-          echo "=== Creating test files from server responses ==="
+          echo "=== Creating test files from server responses using decode-output.js ==="
 
-          # Create the decode processor script using your decode-output.js logic
+          # Create a simple processor that uses your existing decode-output.js
           cat > process_responses.js << 'EOF'
           const fs = require('fs');
-          const path = require('path');
-
-          function createTestFiles(input, folder = 'tests') {
-            let filesJson;
-
-            // If input is a string, parse it
-            if (typeof input === 'string') {
-              // Remove ```json and ``` wrapping
-              input = input.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
-
-              try {
-                filesJson = JSON.parse(input);
-              } catch (err) {
-                console.error('Failed to parse JSON:', err);
-                console.error('Input preview:', input.substring(0, 200) + '...');
-                return;
-              }
-            } else if (typeof input === 'object') {
-              filesJson = input;
-            } else {
-              console.error('Input must be a JSON string or object');
-              return;
-            }
-
-            // Ensure the folder exists
-            if (!fs.existsSync(folder)) {
-              fs.mkdirSync(folder, { recursive: true });
-              console.log(`Created folder: ${folder}`);
-            }
-
-            // Create or overwrite files
-            for (const [filename, content] of Object.entries(filesJson)) {
-              // Use full path from filename, not just basename
-              const filePath = path.join(folder, path.basename(filename));
-
-              try {
-                // If content is a JSON string (like testCase files), parse and stringify it properly
-                let finalContent = content;
-                if (typeof content === 'string' && (content.trim().startsWith('{') || content.trim().startsWith('['))) {
-                  try {
-                    const parsed = JSON.parse(content);
-                    finalContent = JSON.stringify(parsed, null, 2);
-                  } catch (e) {
-                    // If it fails to parse, use as-is
-                    finalContent = content;
-                  }
-                }
-                
-                fs.writeFileSync(filePath, finalContent, 'utf8');
-                console.log(`Created/Updated file: ${filePath}`);
-              } catch (err) {
-                console.error(`Failed to write file ${filePath}:`, err);
-              }
-            }
-          }
+          const { processAndCreateFiles } = require('./decode-output.js');
 
           // Process all server response files
           const responseFiles = fs.readdirSync('.').filter(file => file.startsWith('server_response_') && file.endsWith('.json'));
@@ -193,19 +139,8 @@ jobs:
               const responseContent = fs.readFileSync(responseFile, 'utf8');
               console.log(`Response content preview: ${responseContent.substring(0, 150)}...`);
               
-              // The response might be a JSON string containing markdown-wrapped JSON
-              // First try to parse it as JSON to get the actual content
-              let actualContent;
-              try {
-                actualContent = JSON.parse(responseContent);
-                console.log('Successfully parsed outer JSON string');
-              } catch (parseErr) {
-                console.log('Response is not a JSON string, using as-is');
-                actualContent = responseContent;
-              }
-              
-              // Now process the content
-              createTestFiles(actualContent);
+              // Use your existing decode-output.js function
+              processAndCreateFiles(responseContent, './');
               
               // Clean up the temporary response file
               fs.unlinkSync(responseFile);
@@ -216,7 +151,7 @@ jobs:
           });
           EOF
 
-          # Run the processor
+          # Run the processor using your decode-output.js
           node process_responses.js
 
           # Clean up the processor script
