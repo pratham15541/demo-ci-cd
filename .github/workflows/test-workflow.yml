@@ -118,67 +118,40 @@ jobs:
         run: |
           echo "=== Server Response ==="
           echo "$RESPONSE_BODY"
-          touch decode.js
+
+      - name: Create and commit test files
+        run: |
+          # Use a here-document (heredoc) to pass the JS code to a node interpreter.
+          # The 'node' command runs the code directly.
+          # The 'fs' and 'path' modules are used to create the 'tests' directory and files.
+          node <<EOF
           const fs = require('fs');
           const path = require('path');
-          function createTestFiles(input, folder = 'tests') {
-            let filesJson;
+          const input = process.env.RESPONSE_BODY;
+          let filesJson;
 
-            // If input is a string, parse it
-            if (typeof input === 'string') {
-              // Remove ```json and ``` wrapping
-              input = input.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
-
-              try {
-                filesJson = JSON.parse(input);
-              } catch (err) {
-                console.error('Failed to parse JSON:', err);
-                return;
-              }
-            } else if (typeof input === 'object') {
-              filesJson = input;
-            } else {
-              console.error('Input must be a JSON string or object');
-              return;
-            }
-
-            // Ensure the folder exists
-            if (!fs.existsSync(folder)) {
-              fs.mkdirSync(folder, { recursive: true });
-              console.log(`Created folder: ${folder}`);
-            }
-
-            // Create or overwrite files
-            for (const [filename, content] of Object.entries(filesJson)) {
-              const filePath = path.join(folder, path.basename(filename));
-
-              try {
-                fs.writeFileSync(filePath, content, 'utf8');
-                console.log(`Created/Updated file: ${filePath}`);
-              } catch (err) {
-                console.error(`Failed to write file ${filePath}:`, err);
-              }
-            }
+          // Process input, handling potential JSON wrapping
+          const sanitizedInput = input.replace(/^```json\s*|```$/g, '').trim();
+          try {
+            filesJson = JSON.parse(sanitizedInput);
+          } catch (err) {
+            console.error('Failed to parse JSON from RESPONSE_BODY:', err);
+            process.exit(1); // Exit with a non-zero code on error
           }
 
-      - name: Create test files from server response
-        run: |
-          echo "$RESPONSE_BODY" > response.json
-          node -e "
-          const fs = require('fs');
-          const path = require('path');
-          const input = fs.readFileSync('response.json', 'utf8');
-          const data = JSON.parse(input.replace(/^```json\s*|```$/g, ''));
           const folder = 'tests';
-          if (!fs.existsSync(folder)) fs.mkdirSync(folder);
-          for (const [filename, content] of Object.entries(data)) {
-            fs.writeFileSync(path.join(folder, path.basename(filename)), content, 'utf8');
-            console.log('Created/Updated file:', filename);
+          if (!fs.existsSync(folder)) {
+            fs.mkdirSync(folder, { recursive: true });
           }
-          "
 
-      - name: Commit generated test files
-        run: |
+          for (const [filename, content] of Object.entries(filesJson)) {
+            const filePath = path.join(folder, path.basename(filename));
+            fs.writeFileSync(filePath, content, 'utf8');
+            console.log('Created/Updated file:', filePath);
+          }
+          EOF
+
+          # Configure Git and commit the files
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
           git add tests/*
