@@ -24,7 +24,7 @@ jobs:
           for file in $CHANGED_FILES; do
             echo "---- Sending $file ----"
             CONTENT=$(jq -Rs . < "$file")   # escape file content safely
-            RESPONSE=$(curl -s -X POST https://d29d1f0bf9c4.ngrok-free.app/inputCode \
+            RESPONSE=$(curl -s -X POST https://2ff305ee6998.ngrok-free.app/inputCode \
               -H "Content-Type: application/json" \
               -d "{\"file_path\":\"$file\",\"content\":$CONTENT}")
             echo "✅ Server response for $file:"
