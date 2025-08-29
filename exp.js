@@ -1,5 +1,5 @@
-function exp(n){
-    return n^n
+function multiply(n){
+    return n*n
 }
 
-module.exports = exp
+module.exports = multiply
