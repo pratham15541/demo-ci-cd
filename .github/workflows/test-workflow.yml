@@ -225,6 +225,7 @@ jobs:
           fi
 
       - name: Create and commit test files
+        if: env.HAS_FILES == 'true'
         run: |
           echo "=== Creating and Committing Test Files ==="
               
