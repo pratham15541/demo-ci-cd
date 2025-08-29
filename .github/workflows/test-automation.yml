@@ -2,7 +2,7 @@ name: Run Jest Tests and Commit Reports
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -49,25 +49,36 @@ jobs:
       - name: Send Changed Files to Server
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
+          echo "=== DEBUG: Changed files from changed-files action ==="
+          echo "${{ steps.changed-files.outputs.all_changed_files }}"
+          echo "==============================================="
+              
+          IFS=$'\n'
           for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
             echo "Preparing and sending $file to the server..."
-            
-            # Use Node.js to safely create a JSON payload from the file content.
-            # The file path is passed as an argument to the script.
+              
+            # Run inline Node.js script to safely generate JSON payload
             node -e "
               const fs = require('fs');
-              const filePath = process.argv[1];
-              const content = fs.readFileSync(filePath, 'utf-8');
-              const payload = {
-                file_path: filePath,
-                content: content,
-                commit_sha: '${{ github.sha }}',
-              };
-              fs.writeFileSync('payload.json', JSON.stringify(payload));
+              const filePath = process.argv[2];
+              console.log('DEBUG: Processing filePath ->', filePath);
+              try {
+                const content = fs.readFileSync(filePath, 'utf-8');
+                const payload = {
+                  file_path: filePath,
+                  content: content,
+                  commit_sha: '${{ github.sha }}',
+                };
+                fs.writeFileSync('payload.json', JSON.stringify(payload, null, 2));
+                console.log('DEBUG: payload.json written successfully');
+              } catch (err) {
+                console.error('ERROR: Failed to process file', filePath, err);
+                process.exit(1);
+              }
             " "$file"
-
-            # Send the generated payload.json to the server
-            curl -X POST https://2fff1226ace9.ngrok-free.app/inputCode \
+              
+            echo "DEBUG: Sending payload.json for $file"
+            curl -v -X POST https://2fff1226ace9.ngrok-free.app/inputCode \
               -H "Content-Type: application/json" \
               --data-binary @payload.json
           done
@@ -93,4 +104,3 @@ jobs:
           # Commit only if there are changes to the report file to avoid empty commits
           git diff --staged --quiet || git commit -m "chore: update test report"
           git push
-
