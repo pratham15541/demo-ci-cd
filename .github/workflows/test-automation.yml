@@ -39,6 +39,7 @@ jobs:
         git config user.email "github-actions@github.com"
         git add test-reports/*.json
         git diff --cached --quiet || git commit -m "Add Jest test report $TIMESTAMP"
-        git push
+        # Push using the GITHUB_TOKEN for authentication
+        git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git HEAD:${{ github.ref }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
