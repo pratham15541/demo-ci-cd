@@ -1,4 +1,4 @@
-name: Debug Send Files
+name: Send Files to Server
 
 on:
   push:
@@ -12,94 +12,22 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
 
-      - name: Debug everything
+      - name: Get changed files
+        id: files
         run: |
-          echo "=== DEBUGGING WORKFLOW ==="
-          echo "GitHub event before: ${{ github.event.before }}"
-          echo "GitHub SHA: ${{ github.sha }}"
-          echo "Event name: ${{ github.event_name }}"
-          echo ""
-          
-          echo "Repository contents:"
-          ls -la
-          echo ""
-          
-          echo "Git log:"
-          git log --oneline -5
-          echo ""
-          
-          echo "Trying different methods to get changed files:"
-          echo "Method 1 - HEAD~1 HEAD:"
-          git diff --name-only HEAD~1 HEAD || echo "Failed"
-          
-          echo "Method 2 - Using event SHAs:"
-          git diff --name-only ${{ github.event.before }} ${{ github.sha }} || echo "Failed"
-          
-          echo "Method 3 - Show files in last commit:"
-          git show --pretty="" --name-only HEAD || echo "Failed"
-          
-          echo "Method 4 - All files (fallback):"
-          find . -name "*.js" -o -name "*.json" -o -name "*.py" -o -name "*.txt" | head -5
-          
-          echo "=== END DEBUG ==="
+          echo "CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | tr '\n' ' ')" >> $GITHUB_ENV
+          echo "Changed files: $CHANGED_FILES"
 
-      - name: Force send all files (bypass git diff)
+      - name: Send changed files to server
         run: |
-          echo "=== SENDING ALL FILES (BYPASS GIT DIFF) ==="
-          
-          # Get all relevant files regardless of git status
-          ALL_FILES=$(find . -type f \( -name "*.js" -o -name "*.json" -o -name "*.py" -o -name "*.txt" -o -name "*.md" \) -not -path './.git/*' | head -5)
-          
-          echo "Files to send: $ALL_FILES"
-          
-          if [ -z "$ALL_FILES" ]; then
-            echo "❌ No files found!"
-            exit 1
-          fi
-          
-          for file in $ALL_FILES; do
-            echo ""
-            echo "---- Sending: $file ----"
-            
-            # Get file content
-            CONTENT=$(cat "$file" | jq -Rs .) || {
-              echo "❌ Failed to read $file"
-              continue
-            }
-            
-            # Create JSON
-            JSON_PAYLOAD=$(jq -n \
-              --arg file_path "$file" \
-              --argjson content "$CONTENT" \
-              '{file_path: $file_path, content: $content}') || {
-              echo "❌ Failed to create JSON for $file"
-              continue
-            }
-            
-            echo "Sending $(echo "$JSON_PAYLOAD" | wc -c) bytes to server..."
-            
-            # Send to server
-            HTTP_CODE=$(curl -s -w "%{http_code}" -X POST \
-              https://2ff305ee6998.ngrok-free.app/inputCode \
+          for file in $CHANGED_FILES; do
+            echo "---- Sending $file ----"
+            CONTENT=$(jq -Rs . < "$file")   # escape file content safely
+            RESPONSE=$(curl -s -X POST https://2ff305ee6998.ngrok-free.app/inputCode \
               -H "Content-Type: application/json" \
-              -H "ngrok-skip-browser-warning: true" \
-              -d "$JSON_PAYLOAD" \
-              -o response.txt)
-            
-            echo "HTTP Status: $HTTP_CODE"
-            echo "Response:"
-            cat response.txt || echo "No response file"
-            
-            if [ "$HTTP_CODE" = "200" ]; then
-              echo "✅ Success for $file"
-            else
-              echo "❌ Failed for $file (HTTP $HTTP_CODE)"
-            fi
-            
-            echo "----------------------------"
+              -d "{\"file_path\":\"$file\",\"content\":$CONTENT}")
+            echo "✅ Server response for $file:"
+            echo "$RESPONSE"
+            echo "------------------------"
           done
-          
-          echo "=== FINISHED ==="
