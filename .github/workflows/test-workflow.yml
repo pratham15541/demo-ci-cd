@@ -22,7 +22,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: "18"
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          echo "=== Installing dependencies ==="
+          npm install
+          npm i --save-dev jest
 
       - name: Get changed JS/TS files from last commit
         id: files
