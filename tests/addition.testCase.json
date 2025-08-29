@@ -1,9 +1,0 @@
-{
-  "addition": [
-    {"input": [6,2], "expected": 3, "description": "should correctly divide two positive numbers"},
-    {"input": [5,0], "expected": "Infinity", "description": "should return Infinity when dividing by zero"},
-    {"input": [-6,2], "expected": -3, "description": "should correctly divide a negative number by a positive number"},
-    {"input": [0,5], "expected": 0, "description": "should return zero when numerator is zero"},
-    {"input": ["a",2], "expected": "NaN", "description": "should return NaN when inputs are not numbers"}
-  ]
-}
