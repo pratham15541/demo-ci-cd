@@ -2,7 +2,7 @@ name: Send Files to Server
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -15,11 +15,21 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Uses nodejs
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: |
+          npm install
+          npm -i -g jest
+
       - name: Get changed files
         id: files
         run: |
           echo "=== Getting changed files ==="
-          
+
           if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ] || [ -z "${{ github.event.before }}" ]; then
             echo "First push or no previous commit - getting all files"
             CHANGED_FILES=$(find . -type f \( -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" -o -name "*.py" -o -name "*.txt" -o -name "*.md" \) -not -path './.git/*' | tr '\n' ' ')
@@ -37,11 +47,11 @@ jobs:
               CHANGED_FILES=$(git show --pretty="" --name-only HEAD | tr '\n' ' ')
             fi
           fi
-          
+
           CHANGED_FILES=$(echo $CHANGED_FILES | xargs)
           echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
           echo "Detected files: '$CHANGED_FILES'"
-          
+
           if [ -z "$CHANGED_FILES" ]; then
             echo "HAS_FILES=false" >> $GITHUB_ENV
           else
@@ -49,10 +59,13 @@ jobs:
           fi
 
       - name: Send changed files to server
+        id: send_files
         if: env.HAS_FILES == 'true'
         run: |
           echo "=== Sending files to server ==="
-          
+
+          RESPONSE_BODY=""
+
           for file in $CHANGED_FILES; do
             echo ""
             echo "---- Processing: $file ----"
@@ -101,14 +114,14 @@ jobs:
             
             HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1 | cut -d: -f2)
             RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
-
-            echo "::set-output name=response_body::${RESPONSE_BODY}"
             
             echo "HTTP Status: $HTTP_STATUS"
             echo "Server response: $RESPONSE_BODY"
             
             if [ "$HTTP_STATUS" = "200" ]; then
               echo "✅ Successfully sent $file"
+              # Store the response in environment variable
+              echo "RESPONSE_BODY=$RESPONSE_BODY" >> $GITHUB_ENV
             else
               echo "❌ Failed to send $file (HTTP $HTTP_STATUS)"
             fi
@@ -116,4 +129,23 @@ jobs:
             echo "------------------------"
           done
 
-    
+      - name: Decode server response and create files
+        if: env.HAS_FILES == 'true'
+        run: |
+          echo "=== Decoding server response and creating files ==="
+          echo "Response Body: ${{ env.RESPONSE_BODY }}"
+
+          # Create a temporary file with the response
+          echo '${{ env.RESPONSE_BODY }}' > response_temp.txt
+
+          # Call your decode function with the response
+          node -e "
+          const fs = require('fs');
+          const { processAndCreateFiles } = require('./decode-output.js');
+          const response = fs.readFileSync('response_temp.txt', 'utf8');
+          console.log('Processing response of length:', response.length);
+          processAndCreateFiles(response);
+          "
+
+          # Clean up temp file
+          rm -f response_temp.txt

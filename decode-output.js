@@ -100,14 +100,9 @@ function processAndCreateFiles(messyJsonString, baseDir = './') {
 
 
 
-// Example usage with your messy data
-const messyData = `
-JSO
-`;
 
-// Test the function
-console.log('🚀 Testing with messy JSON data...\n');
-processAndCreateFiles(messyData);
+
+
 
 // Export functions
 module.exports = {
