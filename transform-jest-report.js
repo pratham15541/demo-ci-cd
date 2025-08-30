@@ -4,9 +4,14 @@ const path = require("path");
 /**
  * Transform Jest report to the required payload format
  * @param {string} reportPath - Path to the Jest JSON report file
+ * @param {Object} options - Additional options for payload
+ * @param {string} options.commit_id - Git commit ID
+ * @param {string} options.repo_url - Repository URL
+ * @param {string} options.username - Username
+ * @param {string} options.email - Email
  * @returns {Object} Transformed payload
  */
-function transformJestReport(reportPath) {
+function transformJestReport(reportPath, options = {}) {
   try {
     if (!fs.existsSync(reportPath)) {
       throw new Error(`Jest report file not found: ${reportPath}`);
@@ -128,6 +133,11 @@ ${failed.errors.join("\n")}
       stack_trace: stackTrace.trim(),
       report_md: reportMd,
       report_json: jestData,
+      username: options.username || "Alish",
+      email: options.email || "ai@gmail.com",
+      commit_id: options.commit_id || "abc123",
+      repo_url: options.repo_url || "https://github.com/your/repo", // required field in schema
+      id: Date.now().toString(), // ensure uniqueness
     };
 
     return payload;
@@ -193,17 +203,36 @@ if (require.main === module) {
 
   if (args.length < 1) {
     console.error(
-      "Usage: node transform-jest-report.js <jest-report-path> [endpoint-url]"
+      "Usage: node transform-jest-report.js <jest-report-path> [endpoint-url] [commit-id] [repo-url] [username] [email]"
     );
     process.exit(1);
   }
 
   const reportPath = args[0];
   const endpoint = args[1] || "https://your-api-endpoint.com/jest-reports";
+  const commit_id = args[2] || process.env.GITHUB_SHA || "abc123";
+  const repo_url =
+    args[3] ||
+    `https://github.com/${process.env.GITHUB_REPOSITORY}` ||
+    "https://github.com/your/repo";
+  const username = args[4] || "Alish";
+  const email = args[5] || "ai@gmail.com";
+
+  const options = {
+    commit_id,
+    repo_url,
+    username,
+    email,
+  };
 
   try {
     console.log("=== Transforming Jest Report ===");
-    const payload = transformJestReport(reportPath);
+    console.log(`Commit ID: ${commit_id}`);
+    console.log(`Repo URL: ${repo_url}`);
+    console.log(`Username: ${username}`);
+    console.log(`Email: ${email}`);
+
+    const payload = transformJestReport(reportPath, options);
 
     // Save transformed payload
     const outputPath = "jest-transformed-payload.json";

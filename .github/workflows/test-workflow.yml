@@ -254,13 +254,27 @@ jobs:
           if [ -f "$latest_report" ]; then
             echo "Processing Jest report: $latest_report"
             
-            # Use the transform script to process and send the report
-            node transform-jest-report.js "$latest_report" "https://your-api-endpoint.com/jest-reports" || echo "⚠️ Failed to process/send Jest report"
+            # Get dynamic values from GitHub Actions environment
+            COMMIT_ID="${{ github.sha }}"
+            REPO_URL="https://github.com/${{ github.repository }}"
+            USERNAME="Alish"
+            EMAIL="ai@gmail.com"
+            
+            echo "Using commit ID: $COMMIT_ID"
+            echo "Using repo URL: $REPO_URL"
+            
+            # Use the transform script to process and send the report with dynamic values
+            node transform-jest-report.js "$latest_report" "https://your-api-endpoint.com/jest-reports" "$COMMIT_ID" "$REPO_URL" "$USERNAME" "$EMAIL" || echo "⚠️ Failed to process/send Jest report"
             
           else
             echo "❌ No Jest report file found"
             # Create a dummy report for failed test run
             echo "Creating dummy report for failed test execution..."
+            
+            # Get dynamic values for error report too
+            COMMIT_ID="${{ github.sha }}"
+            REPO_URL="https://github.com/${{ github.repository }}"
+            
             node -e "
               const payload = {
                 total: 0,
@@ -268,7 +282,12 @@ jobs:
                 failed: 0,
                 stack_trace: 'No tests executed - Jest may have failed to run',
                 report_md: '# Jest Test Report\n\n❌ **Error**: No test results available. Jest execution may have failed.',
-                report_json: { error: 'No Jest report generated' }
+                report_json: { error: 'No Jest report generated' },
+                username: 'Alish',
+                email: 'ai@gmail.com',
+                commit_id: '$COMMIT_ID',
+                repo_url: '$REPO_URL',
+                id: Date.now().toString()
               };
               
               console.log('Sending error report...');
