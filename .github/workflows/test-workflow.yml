@@ -20,6 +20,16 @@ jobs:
           fetch-depth: 2
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install jest --save-dev
+
       - name: Get changed files
         id: files
         run: |
@@ -185,4 +195,47 @@ jobs:
             fi
           else
             echo "No test files were created to commit"
+          fi
+
+      - name: Run Jest tests
+        run: |
+          echo "=== Running Jest tests ==="
+          timestamp=$(date +%s)
+          mkdir -p test-reports
+          # Run Jest with JSON output
+          npm test -- --json --outputFile=test-reports/jest-report-$timestamp.json --verbose --detectOpenHandles --forceExit || echo "Tests completed with failures"
+          echo "Jest test report saved to test-reports/jest-report-$timestamp.json"
+
+          # Also create a summary report
+          if [ -f "test-reports/jest-report-$timestamp.json" ]; then
+            echo "=== Jest Test Summary ==="
+            cat test-reports/jest-report-$timestamp.json | node -e "
+              const data = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+              console.log('Tests run:', data.numTotalTests || 0);
+              console.log('Tests passed:', data.numPassedTests || 0);
+              console.log('Tests failed:', data.numFailedTests || 0);
+              console.log('Test suites:', data.numTotalTestSuites || 0);
+            " || echo "Could not parse Jest report"
+          fi
+        continue-on-error: true
+
+      - name: Commit Jest report
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          if [ -d "test-reports" ] && [ "$(ls -A test-reports)" ]; then
+            echo "Adding Jest test reports to git..."
+            git add test-reports/
+            
+            if git diff --cached --quiet; then
+              echo "No test report changes to commit"
+            else
+              echo "Committing Jest test report..."
+              git commit -m "feat: Add Jest test report"
+              git push origin main
+              echo "✅ Successfully committed Jest test report"
+            fi
+          else
+            echo "No test reports to commit"
           fi
