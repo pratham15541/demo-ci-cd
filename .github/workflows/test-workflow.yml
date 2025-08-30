@@ -264,7 +264,7 @@ jobs:
             echo "Using repo URL: $REPO_URL"
             
             # Use the transform script to process and send the report with dynamic values
-            node transform-jest-report.js "$latest_report" "https://your-api-endpoint.com/jest-reports" "$COMMIT_ID" "$REPO_URL" "$USERNAME" "$EMAIL" || echo "⚠️ Failed to process/send Jest report"
+            node transform-jest-report.js "$latest_report" "https://ci-cd-qa-automation-3.onrender.com/api/reports" "$COMMIT_ID" "$REPO_URL" "$USERNAME" "$EMAIL" || echo "⚠️ Failed to process/send Jest report"
             
           else
             echo "❌ No Jest report file found"
@@ -281,28 +281,63 @@ jobs:
                 passed: 0,
                 failed: 0,
                 stack_trace: 'No tests executed - Jest may have failed to run',
-                report_md: '# Jest Test Report\n\n❌ **Error**: No test results available. Jest execution may have failed.',
+                report_md: '# Jest Test Report\\n\\n❌ **Error**: No test results available. Jest execution may have failed.',
                 report_json: { error: 'No Jest report generated' },
                 username: 'Alish',
                 email: 'ai@gmail.com',
-                commit_id: '$COMMIT_ID',
-                repo_url: '$REPO_URL',
+                commit_id: process.env.COMMIT_ID || '$COMMIT_ID',
+                repo_url: process.env.REPO_URL || '$REPO_URL',
                 id: Date.now().toString()
               };
               
               console.log('Sending error report...');
+              console.log('Payload:', JSON.stringify(payload, null, 2));
               require('fs').writeFileSync('jest-error-payload.json', JSON.stringify(payload, null, 2));
-            "
+            " 
             
             # Send error report
             if [ -f "jest-error-payload.json" ]; then
-              curl -X POST \\
-                -H \"Content-Type: application/json\" \\
-                -H \"Accept: application/json\" \\
-                -d @jest-error-payload.json \\
-                \"https://ci-cd-qa-automation-3.onrender.com/api/reports\" \\
-                --verbose \\
-                --fail-with-body || echo \"⚠️ Failed to send error report\"
+              echo "Sending error report to server..."
+              curl -X POST \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -d @jest-error-payload.json \
+                "https://ci-cd-qa-automation-3.onrender.com/api/reports" \
+                --verbose \
+                --fail-with-body || echo "⚠️ Failed to send error report"
             fi
           fi
         continue-on-error: true
+
+      - name: Debug workflow status
+        run: |
+          echo "=== Debugging Workflow Status ==="
+          echo "Current directory: $(pwd)"
+          echo "Directory contents:"
+          ls -la
+          
+          echo ""
+          echo "Test reports directory:"
+          if [ -d "test-reports" ]; then
+            ls -la test-reports/
+          else
+            echo "test-reports directory does not exist"
+          fi
+          
+          echo ""
+          echo "Generated payload files:"
+          ls -la jest-*.json 2>/dev/null || echo "No jest payload files found"
+          
+          echo ""
+          echo "Environment variables:"
+          echo "GITHUB_SHA: ${{ github.sha }}"
+          echo "GITHUB_REPOSITORY: ${{ github.repository }}"
+          
+          echo ""
+          echo "Node.js and npm versions:"
+          node --version
+          npm --version
+          
+          echo ""
+          echo "Jest installation check:"
+          npm list jest || echo "Jest not found in package.json dependencies"

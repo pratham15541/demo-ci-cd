@@ -173,13 +173,7 @@ async function sendJestReport(
     console.log(`- Report MD length: ${payload.report_md.length} characters`);
 
     // Send via curl
-    const curlCommand = `curl -X POST \\
-      -H "Content-Type: application/json" \\
-      -H "Accept: application/json" \\
-      -d @${payloadFile} \\
-      "${endpoint}" \\
-      --verbose \\
-      --fail-with-body`;
+    const curlCommand = `curl -X POST -H "Content-Type: application/json" -H "Accept: application/json" -d @${payloadFile} "${endpoint}" --verbose --fail-with-body`;
 
     console.log(`\nExecuting: ${curlCommand}`);
 
