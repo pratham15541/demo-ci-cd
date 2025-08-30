@@ -154,7 +154,7 @@ ${failed.errors.join("\n")}
  */
 async function sendJestReport(
   payload,
-  endpoint = "https://your-api-endpoint.com/jest-reports"
+  endpoint = "https://ci-cd-qa-automation-3.onrender.com/api/reports"
 ) {
   const { execSync } = require("child_process");
 
