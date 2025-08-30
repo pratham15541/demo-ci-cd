@@ -253,6 +253,7 @@ jobs:
 
           if [ -f "$latest_report" ]; then
             echo "Processing Jest report: $latest_report"
+            echo "Report file: $latest_report"
             
             # Get dynamic values from GitHub Actions environment
             COMMIT_ID="${{ github.sha }}"
@@ -263,35 +264,151 @@ jobs:
             echo "Using commit ID: $COMMIT_ID"
             echo "Using repo URL: $REPO_URL"
             
-            # Use the transform script to process and send the report with dynamic values
-            node transform-jest-report.js "$latest_report" "https://ci-cd-qa-automation-3.onrender.com/api/reports" "$COMMIT_ID" "$REPO_URL" "$USERNAME" "$EMAIL" || echo "⚠️ Failed to process/send Jest report"
+            # Parse Jest report and create payload following your exact pattern
+            node -e "
+              const fs = require('fs');
+              const reportPath = '$latest_report';
+              
+              try {
+                console.log('Reading Jest report from:', reportPath);
+                
+                // Read and parse Jest JSON report
+                const jestOutput = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+                console.log('Jest data parsed successfully');
+                
+                // Summarize Jest results with all fields as strings (following your pattern)
+                function summarizeJestResults(jestJson) {
+                  const total = (jestJson.numTotalTests || 0).toString();
+                  const passed = (jestJson.numPassedTests || 0).toString();
+                  const failed = (jestJson.numFailedTests || 0).toString();
+
+                  const failedArray = jestJson.testResults ? jestJson.testResults.flatMap(suite =>
+                    suite.assertionResults
+                      .filter(test => test.status === 'failed' || test.failing)
+                      .map(test => ({
+                        suite: suite.name,
+                        test: test.fullName || test.title,
+                        description: test.title,
+                        failureMessages: test.failureMessages || []
+                      }))
+                  ) : [];
+
+                  const stack_trace = JSON.stringify(failedArray);
+                  const failed_tests = JSON.stringify(failedArray);
+
+                  let report_md = \`## Test Summary\n\n**Total:** \${total}\n**Passed:** \${passed}\n**Failed:** \${failed}\n\n\`;
+                  if (failedArray.length > 0) {
+                    report_md += \`### Failures\n\${stack_trace}\n\`;
+                  }
+
+                  const report_json = JSON.stringify({
+                    total,
+                    passed,
+                    failed,
+                    failed_tests,
+                    stack_trace,
+                  });
+
+                  return {
+                    total,
+                    passed,
+                    failed,
+                    stack_trace,
+                    failed_tests,
+                    report_md,
+                    report_json
+                  };
+                }
+                
+                // Prepare payload for backend (following your exact pattern)
+                const summary = summarizeJestResults(jestOutput);
+                const payload = {
+                  ...summary,
+                  username: '$USERNAME',
+                  email: '$EMAIL',
+                  commit_id: '$COMMIT_ID',
+                  repo_url: '$REPO_URL',
+                  id: Date.now().toString()
+                };
+                
+                console.log('Payload created:');
+                console.log('- Total:', payload.total);
+                console.log('- Passed:', payload.passed);
+                console.log('- Failed:', payload.failed);
+                console.log('- Failed tests count:', JSON.parse(payload.failed_tests).length);
+                console.log('- Report MD length:', payload.report_md.length);
+                
+                // Save payload to file for curl
+                fs.writeFileSync('jest-payload.json', JSON.stringify(payload, null, 2));
+                console.log('✅ Payload saved to jest-payload.json');
+                
+              } catch (error) {
+                console.error('❌ Error processing Jest report:', error.message);
+                console.error('Stack trace:', error.stack);
+                process.exit(1);
+              }
+            "
+            
+            # Send the payload via curl (following your POST pattern)
+            if [ -f "jest-payload.json" ]; then
+              echo "Sending Jest report to server..."
+              echo "Payload contents:"
+              cat jest-payload.json | jq '.' || cat jest-payload.json
+              
+              curl -X POST \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -d @jest-payload.json \
+                "https://ci-cd-qa-automation-3.onrender.com/api/reports" \
+                --verbose \
+                --fail-with-body || echo "⚠️ Failed to send Jest report"
+              echo "✅ Jest report sent successfully"
+            else
+              echo "❌ No payload file created"
+            fi
             
           else
-            echo "❌ No Jest report file found"
-            # Create a dummy report for failed test run
+            echo "❌ No Jest report file found in test-reports directory"
             echo "Creating dummy report for failed test execution..."
             
-            # Get dynamic values for error report too
+            # Get dynamic values for error report
             COMMIT_ID="${{ github.sha }}"
             REPO_URL="https://github.com/${{ github.repository }}"
             
+            # Create error payload following your pattern
             node -e "
               const payload = {
-                total: 0,
-                passed: 0,
-                failed: 0,
-                stack_trace: 'No tests executed - Jest may have failed to run',
-                report_md: '# Jest Test Report\\n\\n❌ **Error**: No test results available. Jest execution may have failed.',
-                report_json: { error: 'No Jest report generated' },
+                total: '0',
+                passed: '0',
+                failed: '0',
+                stack_trace: JSON.stringify([{
+                  suite: 'Pipeline Error',
+                  test: 'Jest Execution Failed',
+                  description: 'No tests executed - Jest may have failed to run',
+                  failureMessages: ['No Jest report file found', 'Jest execution may have crashed']
+                }]),
+                failed_tests: JSON.stringify([{
+                  suite: 'Pipeline Error',
+                  test: 'Jest Execution Failed',
+                  description: 'No tests executed',
+                  failureMessages: ['Pipeline could not find Jest report file']
+                }]),
+                report_md: '## Test Summary\n\n**Total:** 0\n**Passed:** 0\n**Failed:** 0\n\n### Pipeline Error\nNo Jest report file was generated. Jest execution may have failed.',
+                report_json: JSON.stringify({
+                  total: '0',
+                  passed: '0',
+                  failed: '0',
+                  error: 'No Jest report generated'
+                }),
                 username: 'Alish',
                 email: 'ai@gmail.com',
-                commit_id: process.env.COMMIT_ID || '$COMMIT_ID',
-                repo_url: process.env.REPO_URL || '$REPO_URL',
+                commit_id: '$COMMIT_ID',
+                repo_url: '$REPO_URL',
                 id: Date.now().toString()
               };
               
-              console.log('Sending error report...');
-              console.log('Payload:', JSON.stringify(payload, null, 2));
+              console.log('Creating error report payload...');
+              console.log('Error payload:', JSON.stringify(payload, null, 2));
               require('fs').writeFileSync('jest-error-payload.json', JSON.stringify(payload, null, 2));
             " 
             
@@ -315,7 +432,7 @@ jobs:
           echo "Current directory: $(pwd)"
           echo "Directory contents:"
           ls -la
-          
+
           echo ""
           echo "Test reports directory:"
           if [ -d "test-reports" ]; then
@@ -323,21 +440,21 @@ jobs:
           else
             echo "test-reports directory does not exist"
           fi
-          
+
           echo ""
           echo "Generated payload files:"
           ls -la jest-*.json 2>/dev/null || echo "No jest payload files found"
-          
+
           echo ""
           echo "Environment variables:"
           echo "GITHUB_SHA: ${{ github.sha }}"
           echo "GITHUB_REPOSITORY: ${{ github.repository }}"
-          
+
           echo ""
           echo "Node.js and npm versions:"
           node --version
           npm --version
-          
+
           echo ""
           echo "Jest installation check:"
           npm list jest || echo "Jest not found in package.json dependencies"
