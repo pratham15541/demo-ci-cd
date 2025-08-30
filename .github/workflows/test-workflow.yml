@@ -15,15 +15,6 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Uses nodejs
-        uses: actions/setup-node@v3
-        with:
-          node-version: "20"
-
-      - name: Install dependencies
-        run: |
-          npm install
-          npm -i -g jest
 
       - name: Get changed files
         id: files
