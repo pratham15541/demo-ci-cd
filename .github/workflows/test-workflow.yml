@@ -300,7 +300,7 @@ jobs:
                 -H \"Content-Type: application/json\" \\
                 -H \"Accept: application/json\" \\
                 -d @jest-error-payload.json \\
-                \"https://your-api-endpoint.com/jest-reports\" \\
+                \"https://ci-cd-qa-automation-3.onrender.com/api/reports\" \\
                 --verbose \\
                 --fail-with-body || echo \"⚠️ Failed to send error report\"
             fi
