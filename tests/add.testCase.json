@@ -1,0 +1,9 @@
+{
+  "add": [
+    {"input": [2,3], "expected": 5, "description": "should correctly add two positive numbers"},
+    {"input": [0,0], "expected": 0, "description": "should return 0 when adding two zeros"},
+    {"input": [-1,-5], "expected": -6, "description": "should correctly add two negative numbers"},
+    {"input": [1000000,2000000], "expected": 3000000, "description": "should correctly add large numbers"},
+    {"input": ["a",2], "expected": "a2", "description": "should concatenate string and number due to type coercion"}
+  ]
+}
