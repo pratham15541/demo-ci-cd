@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: "18"
+          node-version: "20"
 
       - name: Install dependencies
         run: |
@@ -106,7 +106,7 @@ jobs:
             echo "Sending to server..."
             
             HTTP_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-              https://5c6e510e6b7a.ngrok-free.app/inputCode \
+              https://ci-cd-qa-automation-3.onrender.com/process \
               -H "Content-Type: application/json" \
               -H "ngrok-skip-browser-warning: true" \
               -d "$JSON_PAYLOAD")
@@ -228,14 +228,62 @@ jobs:
             echo "Adding Jest test reports to git..."
             git add test-reports/
             
+            # Also add any generated payload files
+            git add jest-transformed-payload.json 2>/dev/null || true
+            git add jest-error-payload.json 2>/dev/null || true
+            
             if git diff --cached --quiet; then
               echo "No test report changes to commit"
             else
               echo "Committing Jest test report..."
-              git commit -m "feat: Add Jest test report"
+              git commit -m "feat: Add Jest test report and payload"
               git push origin main
               echo "✅ Successfully committed Jest test report"
             fi
           else
             echo "No test reports to commit"
           fi
+
+      - name: Transform and send Jest report via curl
+        run: |
+          echo "=== Transforming Jest report and sending via curl ==="
+
+          # Find the latest Jest report file
+          latest_report=$(ls -t test-reports/jest-report-*.json 2>/dev/null | head -1)
+
+          if [ -f "$latest_report" ]; then
+            echo "Processing Jest report: $latest_report"
+            
+            # Use the transform script to process and send the report
+            node transform-jest-report.js "$latest_report" "https://your-api-endpoint.com/jest-reports" || echo "⚠️ Failed to process/send Jest report"
+            
+          else
+            echo "❌ No Jest report file found"
+            # Create a dummy report for failed test run
+            echo "Creating dummy report for failed test execution..."
+            node -e "
+              const payload = {
+                total: 0,
+                passed: 0,
+                failed: 0,
+                stack_trace: 'No tests executed - Jest may have failed to run',
+                report_md: '# Jest Test Report\n\n❌ **Error**: No test results available. Jest execution may have failed.',
+                report_json: { error: 'No Jest report generated' }
+              };
+              
+              console.log('Sending error report...');
+              require('fs').writeFileSync('jest-error-payload.json', JSON.stringify(payload, null, 2));
+            "
+            
+            # Send error report
+            if [ -f "jest-error-payload.json" ]; then
+              curl -X POST \\
+                -H \"Content-Type: application/json\" \\
+                -H \"Accept: application/json\" \\
+                -d @jest-error-payload.json \\
+                \"https://your-api-endpoint.com/jest-reports\" \\
+                --verbose \\
+                --fail-with-body || echo \"⚠️ Failed to send error report\"
+            fi
+          fi
+        continue-on-error: true
