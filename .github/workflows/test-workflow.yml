@@ -262,9 +262,82 @@ jobs:
             
             echo "Using commit ID: $COMMIT_ID"
             echo "Using repo URL: $REPO_URL"
+            echo "Report file: $latest_report"
             
-            # Use the transform script to process and send the report with dynamic values
-            node transform-jest-report.js "$latest_report" "https://ci-cd-qa-automation-3.onrender.com/api/reports" "$COMMIT_ID" "$REPO_URL" "$USERNAME" "$EMAIL" || echo "⚠️ Failed to process/send Jest report"
+            # Parse Jest report and create payload directly
+            node -e "
+              const fs = require('fs');
+              const reportPath = '$latest_report';
+              
+              try {
+                console.log('Reading Jest report from:', reportPath);
+                const jestData = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+                console.log('Jest data parsed successfully');
+                
+                // Extract stack traces from failed tests
+                let stackTrace = '';
+                if (jestData.testResults) {
+                  jestData.testResults.forEach(suite => {
+                    if (suite.assertionResults) {
+                      suite.assertionResults.forEach(test => {
+                        if (test.status === 'failed' && test.failureMessages) {
+                          stackTrace += suite.name + ' -> ' + test.title + ':\n';
+                          stackTrace += test.failureMessages.join('\n') + '\n\n';
+                        }
+                      });
+                    }
+                  });
+                }
+                
+                // Create markdown report
+                const reportMd = '# Jest Test Report\n\n## Summary\n- **Total Tests**: ' + (jestData.numTotalTests || 0) + '\n- **Passed**: ' + (jestData.numPassedTests || 0) + '\n- **Failed**: ' + (jestData.numFailedTests || 0) + '\n- **Test Suites**: ' + (jestData.numTotalTestSuites || 0) + '\n- **Success Rate**: ' + (jestData.numTotalTests > 0 ? Math.round((jestData.numPassedTests / jestData.numTotalTests) * 100) : 0) + '%\n\n## Status\n' + (jestData.numFailedTests > 0 ? '❌ Some tests failed' : '✅ All tests passed');
+                
+                // Create the payload
+                const payload = {
+                  total: jestData.numTotalTests || 0,
+                  passed: jestData.numPassedTests || 0,
+                  failed: jestData.numFailedTests || 0,
+                  stack_trace: stackTrace.trim(),
+                  report_md: reportMd,
+                  report_json: jestData,
+                  username: Alish,
+                  email: '$EMAIL',
+                  commit_id: '$COMMIT_ID',
+                  repo_url: '$REPO_URL',
+                  id: Date.now().toString()
+                };
+                
+                console.log('Payload created:');
+                console.log('- Total:', payload.total);
+                console.log('- Passed:', payload.passed);
+                console.log('- Failed:', payload.failed);
+                console.log('- Stack trace length:', payload.stack_trace.length);
+                console.log('- Report MD length:', payload.report_md.length);
+                
+                // Save payload to file
+                fs.writeFileSync('jest-payload.json', JSON.stringify(payload, null, 2));
+                console.log('✅ Payload saved to jest-payload.json');
+                
+              } catch (error) {
+                console.error('❌ Error processing Jest report:', error.message);
+                process.exit(1);
+              }
+            "
+            
+            # Send the payload via curl
+            if [ -f "jest-payload.json" ]; then
+              echo "Sending Jest report to server..."
+              curl -X POST \
+                -H "Content-Type: application/json" \
+                -H "Accept: application/json" \
+                -d @jest-payload.json \
+                "https://ci-cd-qa-automation-3.onrender.com/api/reports" \
+                --verbose \
+                --fail-with-body || echo "⚠️ Failed to send Jest report"
+              echo "✅ Jest report sent successfully"
+            else
+              echo "❌ No payload file created"
+            fi
             
           else
             echo "❌ No Jest report file found"
@@ -281,16 +354,16 @@ jobs:
                 passed: 0,
                 failed: 0,
                 stack_trace: 'No tests executed - Jest may have failed to run',
-                report_md: '# Jest Test Report\\n\\n❌ **Error**: No test results available. Jest execution may have failed.',
+                report_md: '# Jest Test Report\n\n❌ **Error**: No test results available. Jest execution may have failed.',
                 report_json: { error: 'No Jest report generated' },
                 username: 'Alish',
                 email: 'ai@gmail.com',
-                commit_id: process.env.COMMIT_ID || '$COMMIT_ID',
-                repo_url: process.env.REPO_URL || '$REPO_URL',
+                commit_id: '$COMMIT_ID',
+                repo_url: '$REPO_URL',
                 id: Date.now().toString()
               };
               
-              console.log('Sending error report...');
+              console.log('Creating error report payload...');
               console.log('Payload:', JSON.stringify(payload, null, 2));
               require('fs').writeFileSync('jest-error-payload.json', JSON.stringify(payload, null, 2));
             " 
@@ -308,36 +381,3 @@ jobs:
             fi
           fi
         continue-on-error: true
-
-      - name: Debug workflow status
-        run: |
-          echo "=== Debugging Workflow Status ==="
-          echo "Current directory: $(pwd)"
-          echo "Directory contents:"
-          ls -la
-          
-          echo ""
-          echo "Test reports directory:"
-          if [ -d "test-reports" ]; then
-            ls -la test-reports/
-          else
-            echo "test-reports directory does not exist"
-          fi
-          
-          echo ""
-          echo "Generated payload files:"
-          ls -la jest-*.json 2>/dev/null || echo "No jest payload files found"
-          
-          echo ""
-          echo "Environment variables:"
-          echo "GITHUB_SHA: ${{ github.sha }}"
-          echo "GITHUB_REPOSITORY: ${{ github.repository }}"
-          
-          echo ""
-          echo "Node.js and npm versions:"
-          node --version
-          npm --version
-          
-          echo ""
-          echo "Jest installation check:"
-          npm list jest || echo "Jest not found in package.json dependencies"
