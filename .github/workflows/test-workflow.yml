@@ -300,7 +300,7 @@ jobs:
                   stack_trace: stackTrace.trim(),
                   report_md: reportMd,
                   report_json: jestData,
-                  username: Alish,
+                  username: "Alish",
                   email: '$EMAIL',
                   commit_id: '$COMMIT_ID',
                   repo_url: '$REPO_URL',
