@@ -30,6 +30,13 @@ jobs:
           npm install
           npm install jest --save-dev
 
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-artifact-name
+          path: path/to/file-or-folder
+
+
       - name: Get changed files
         id: files
         run: |
